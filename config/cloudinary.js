@@ -17,7 +17,7 @@ const storage = new CloudinaryStorage({
     const category = req.query.category || 'general';
     return {
       folder: `zion_${category}`,
-      allowed_formats: ['jpg', 'png', 'jpeg', 'webp', 'avif'],
+      resource_type: 'auto', // Allow any file type
     };
   },
 });

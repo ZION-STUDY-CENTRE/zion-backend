@@ -15,17 +15,33 @@ const AssignmentSchema = new mongoose.Schema({
   },
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'User'
+    ref: 'User',
+    required: true
   },
-  // Optional file attachment by instructor
-  fileUrl: {
-    type: String
-  },
+  // Attached files by instructor
+  attachments: [{
+    fileUrl: String,
+    fileName: String,
+    uploadedAt: { type: Date, default: Date.now }
+  }],
   dueDate: {
     type: Date,
     required: true
   },
+  scheduledDate: {
+    type: Date,
+    default: Date.now
+  },
+  status: {
+    type: String,
+    enum: ['draft', 'published', 'archived'],
+    default: 'published'
+  },
   createdAt: {
+    type: Date,
+    default: Date.now
+  },
+  updatedAt: {
     type: Date,
     default: Date.now
   }
