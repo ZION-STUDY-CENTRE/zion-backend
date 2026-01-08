@@ -37,7 +37,7 @@ const setTokenCookies = (res, accessToken, refreshToken) => {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
         sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', // Lax is better for staying logged in during navigation, but None required for cross-site
-        maxAge: 15 * 60 * 1000 // 15 minutes
+        maxAge: 10 * 60 * 1000 // 10 minutes
     });
 
     // Refresh Token Cookie (Long lived)
