@@ -1,14 +1,53 @@
+const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const RefreshToken = require('../models/RefreshToken');
 
-// Helper to generate JWT
-const generateToken = (user) => {
-  return jwt.sign(
-    { user: { id: user.id, role: user.role } },
-    process.env.JWT_SECRET,
-    { expiresIn: '24h' }
-  );
+// Helper to generate Access Token (JWT)
+const generateAccessToken = (user) => {
+  const payload = {
+    user: {
+      id: user.id,
+      role: user.role
+    }
+  };
+  return jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '15m' }); // Short-lived
+};
+
+// Helper to generate Refresh Token (Opaque + DB)
+const generateRefreshToken = async (user, ipAddress) => {
+    const token = crypto.randomBytes(40).toString('hex');
+    const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 Days
+
+    const refreshToken = new RefreshToken({
+        user: user.id,
+        token,
+        expires,
+        createdByIp: ipAddress
+    });
+    await refreshToken.save();
+    return token;
+};
+
+// Helper to set cookies
+const setTokenCookies = (res, accessToken, refreshToken) => {
+    // Access Token Cookie (Short lived)
+    res.cookie('accessToken', accessToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', // Lax is better for staying logged in during navigation, but None required for cross-site
+        maxAge: 15 * 60 * 1000 // 15 minutes
+    });
+
+    // Refresh Token Cookie (Long lived)
+    res.cookie('refreshToken', refreshToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+        path: '/api/auth/refresh', // Restricted path
+        maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+    });
 };
 
 // @desc    Authenticate user & get token
@@ -60,23 +99,115 @@ exports.login = async (req, res) => {
       return res.status(403).json({ msg: 'Account is deactivated. Contact admin.' });
     }
 
-    const token = generateToken(user);
+    const accessToken = generateAccessToken(user);
+    const refreshToken = await generateRefreshToken(user, req.ip);
+
+    setTokenCookies(res, accessToken, refreshToken);
 
     res.json({
-      token,
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        isFirstLogin: user.isFirstLogin,
-        program: user.program
-      }
+        msg: 'Login successful',
+        user: {
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+            isFirstLogin: user.isFirstLogin,
+            program: user.program
+        }
     });
   } catch (err) {
     console.error(err.message);
     res.status(500).send('Server error');
   }
+};
+
+// @desc    Log out user / Clear cookie
+// @route   POST /api/auth/logout
+// @access  Public
+exports.logout = async (req, res) => {
+    const refreshToken = req.cookies.refreshToken;
+    if (refreshToken) {
+        await RefreshToken.findOneAndDelete({ token: refreshToken }); // Simply remove it or mark revoked
+    }
+
+    res.clearCookie('accessToken');
+    res.clearCookie('refreshToken', { path: '/api/auth/refresh' });
+    
+    // Also clear the old 'token' cookie just in case (migration)
+    res.clearCookie('token'); 
+    
+    res.json({ msg: 'Logged out successfully' });
+};
+
+// @desc    Refresh Access Token
+// @route   POST /api/auth/refresh
+// @access  Public (Cookie based)
+exports.refreshToken = async (req, res) => {
+    const token = req.cookies.refreshToken;
+
+    if (!token) {
+        return res.status(401).json({ msg: 'Token required' });
+    }
+
+    try {
+        const rToken = await RefreshToken.findOne({ token }).populate('user');
+
+        if (!rToken || !rToken.isActive) {
+            // If token found but revoked -> Security Alert (Reuse Attempt)
+            if (rToken && rToken.revoked) {
+                 console.warn(`[Security] Revoked refresh token reuse attempt for user ${rToken.user?._id || 'unknown'}`);
+                 // Optional: Revoke all tokens for this user
+            }
+            res.clearCookie('accessToken');
+            res.clearCookie('refreshToken', { path: '/api/auth/refresh' });
+            return res.status(401).json({ msg: 'Invalid token' });
+        }
+
+        const { user } = rToken;
+        if (!user) {
+             return res.status(401).json({ msg: 'User not found' });
+        }
+
+        // Rotation Logic
+        // 1. Revoke current refresh token
+        rToken.revoked = Date.now();
+        const newRefreshTokenString = crypto.randomBytes(40).toString('hex');
+        rToken.replacedByToken = newRefreshTokenString;
+        await rToken.save();
+
+        // 2. Generate new tokens
+        const newAccessToken = generateAccessToken(user);
+        
+        // 3. Save new Refresh Token
+        const newRTokenDoc = new RefreshToken({
+            user: user._id,
+            token: newRefreshTokenString,
+            expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 Days
+        });
+        await newRTokenDoc.save();
+
+        // 4. Send cookies
+        setTokenCookies(res, newAccessToken, newRefreshTokenString);
+
+        res.json({ msg: 'Refreshed' });
+
+    } catch (err) {
+        console.error("Refresh Logic Error:", err);
+        res.status(500).send('Server Error'); 
+    }
+};
+
+// @desc    Get current logged in user
+// @route   GET /api/auth/me
+// @access  Private
+exports.getMe = async (req, res) => {
+    try {
+        const user = await User.findById(req.user.id).select('-password');
+        res.json(user);
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send('Server error');
+    }
 };
 
 // @desc    Register a new user (Admin only)

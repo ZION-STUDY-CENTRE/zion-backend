@@ -6,8 +6,12 @@ const roleMiddleware = require('../middleware/roleMiddleware');
 
 // Public Routes
 router.post('/login', authController.login);
+router.post('/logout', authController.logout);
+router.post('/refresh', authController.refreshToken);
 
 // Protected Routes
+// Get current user
+router.get('/me', authMiddleware, authController.getMe);
 // Only Admin can register new users
 router.post(
   '/register', 
