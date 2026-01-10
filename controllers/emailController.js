@@ -63,17 +63,36 @@ const generateEmailTemplate = (title, content) => {
 const sendEmail = async (req, res) => {
   const { type, data } = req.body;
 
-  // Create Transporter
+  console.log(`[Email Controller] Received Request: ${type} from ${data?.email}`);
+
+  // 1. Validation of Env Vars
+  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+      console.error('[Email Controller] Error: Missing Email Env Variables');
+      return res.status(500).json({ message: 'Server Configuration Error: Missing Email Credentials' });
+  }
+
+  // 2. Create Transporter (Improved Config)
   const transporter = nodemailer.createTransport({
-    service: 'gmail', 
+    host: 'smtp.gmail.com',
+    port: 465,
+    secure: true, // true for 465, false for other ports
     auth: {
       user: process.env.EMAIL_USER,
       pass: process.env.EMAIL_PASS,
     },
     tls: {
-      rejectUnauthorized: false
+      rejectUnauthorized: false // Helps with some self-signed cert issues on cloud
     }
   });
+
+  // Verify connection configuration
+  try {
+      await transporter.verify();
+      console.log('[Email Controller] SMTP Connection Established');
+  } catch (error) {
+      console.error('[Email Controller] SMTP Connection Failed:', error);
+      return res.status(500).json({ message: 'Failed to connect to email server', error: error.message });
+  }
 
   let subject = '';
   let htmlContent = '';
