@@ -71,23 +71,25 @@ const sendEmail = async (req, res) => {
       return res.status(500).json({ message: 'Server Configuration Error: Missing Email Credentials' });
   }
 
-  // 2. Create Transporter (Improved Config)
-  // Switch to port 587 (STARTTLS) which is often more reliable on cloud hosts than 465
+  // 2. Create Transporter (Improved Config for Render)
+  // Using port 465 with rigid Config can help bypass some cloud provider timeouts.
+  // family: 4 forces IPv4, often fixing timeouts on dual-stack environments like Render.
   const transporter = nodemailer.createTransport({
     host: 'smtp.gmail.com',
-    port: 587,
-    secure: false, // true for 465, false for other ports
+    port: 465,
+    secure: true,
     auth: {
       user: process.env.EMAIL_USER,
       pass: process.env.EMAIL_PASS,
     },
+    // Fix for "self-signed certificate in certificate chain" errors (Avast, corp firewalls)
     tls: {
-      ciphers: 'SSLv3',
-      rejectUnauthorized: false 
+      rejectUnauthorized: false
     },
-    connectionTimeout: 10000, // 10 seconds
-    greetingTimeout: 10000,
-    socketTimeout: 10000
+    // Force IPv4 to avoid IPv6 timeouts on Render
+    family: 4,
+    debug: true, // Show debug output
+    logger: true // Log to console
   });
 
   // Verify connection configuration
