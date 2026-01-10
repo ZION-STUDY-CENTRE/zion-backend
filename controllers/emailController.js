@@ -72,17 +72,22 @@ const sendEmail = async (req, res) => {
   }
 
   // 2. Create Transporter (Improved Config)
+  // Switch to port 587 (STARTTLS) which is often more reliable on cloud hosts than 465
   const transporter = nodemailer.createTransport({
     host: 'smtp.gmail.com',
-    port: 465,
-    secure: true, // true for 465, false for other ports
+    port: 587,
+    secure: false, // true for 465, false for other ports
     auth: {
       user: process.env.EMAIL_USER,
       pass: process.env.EMAIL_PASS,
     },
     tls: {
-      rejectUnauthorized: false // Helps with some self-signed cert issues on cloud
-    }
+      ciphers: 'SSLv3',
+      rejectUnauthorized: false 
+    },
+    connectionTimeout: 10000, // 10 seconds
+    greetingTimeout: 10000,
+    socketTimeout: 10000
   });
 
   // Verify connection configuration
