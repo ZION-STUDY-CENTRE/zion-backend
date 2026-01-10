@@ -78,6 +78,7 @@ const sendEmail = async (req, res) => {
   let subject = '';
   let htmlContent = '';
 
+  try {
   // Format email based on form type
   if (type === 'contact') {
     subject = `Message From: ${data.name} - ${data.subject}`;
@@ -222,11 +223,15 @@ const sendEmail = async (req, res) => {
             html: studentEmailContent
         });
 
-    } catch (err) {
-        console.error("Failed to send student confirmation email:", err);
-        // We continue because the admin notification is the critical part
-    }
-  }
+        } catch (err) {
+            console.error("Failed to send student confirmation email:", err);
+            // We continue because the admin notification is the critical part
+        }
+    } // Close if type == admission
+
+    // If type is neither (unlikely but safe), we might arrive here.
+    // Ensure we have content before sending.
+    if (!htmlContent) throw new Error("Invalid email type or empty content");
 
   const mailOptions = {
     from: `"Zion Website" <${process.env.EMAIL_USER}>`,
@@ -236,9 +241,9 @@ const sendEmail = async (req, res) => {
     html: htmlContent,
   };
 
-  try {
-    await transporter.sendMail(mailOptions);
-    res.status(200).json({ message: 'Email sent successfully' });
+  await transporter.sendMail(mailOptions);
+  res.status(200).json({ message: 'Email sent successfully' });
+
   } catch (error) {
     console.error('CRITICAL EMAIL ERROR:', error);
     res.status(500).json({ message: 'Failed to send email', error: error.message, stack: error.stack });
