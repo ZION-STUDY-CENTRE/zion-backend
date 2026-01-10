@@ -72,24 +72,26 @@ const sendEmail = async (req, res) => {
   }
 
   // 2. Create Transporter (Improved Config for Render)
-  // Using port 465 with rigid Config can help bypass some cloud provider timeouts.
-  // family: 4 forces IPv4, often fixing timeouts on dual-stack environments like Render.
+  // Switching to Port 587 with IPv4 forced. 
+  // Port 465 was timing out on Render, likely due to blocking or throttling.
+  // Port 587 (STARTTLS) + family: 4 is the most robust cloud configuration.
   const transporter = nodemailer.createTransport({
     host: 'smtp.gmail.com',
-    port: 465,
-    secure: true,
+    port: 587,
+    secure: false, // Must be false for 587 (STARTTLS)
     auth: {
       user: process.env.EMAIL_USER,
       pass: process.env.EMAIL_PASS,
     },
-    // Fix for "self-signed certificate in certificate chain" errors (Avast, corp firewalls)
     tls: {
       rejectUnauthorized: false
     },
-    // Force IPv4 to avoid IPv6 timeouts on Render
+    // Force IPv4 is CRITICAL for Render to avoid IPv6 connection hangs
     family: 4,
-    debug: true, // Show debug output
-    logger: true // Log to console
+    connectionTimeout: 10000, // 10s timeout
+    greetingTimeout: 5000,
+    debug: true, 
+    logger: true 
   });
 
   // Verify connection configuration
