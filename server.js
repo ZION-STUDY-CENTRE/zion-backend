@@ -67,7 +67,11 @@ app.use('/api/programs', require('./routes/programRoutes'));
 app.use('/api/users', require('./routes/userRoutes'));
 app.use('/api/content', require('./routes/contentRoutes'));
 app.use('/api/upload', require('./routes/uploadRoutes'));
-app.use('/api/email', emailRoutes); 
+app.use('/api/email', emailRoutes);
+app.use('/api/assignments', require('./routes/assignmentRoutes'));
+app.use('/api/assignment-submissions', require('./routes/assignmentSubmissionRoutes'));
+app.use('/api/quizzes', require('./routes/quizRoutes'));
+app.use('/api/files', require('./routes/fileResourceRoutes')); 
 
 app.get('/', (req, res) => {
   res.send('Zion Study Centre API is running');
