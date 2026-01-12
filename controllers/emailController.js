@@ -1,4 +1,4 @@
-const nodemailer = require('nodemailer');
+const axios = require('axios');
 const Program = require('../models/Program');
 
 // Corporate Identity Colors & Assets
@@ -46,6 +46,7 @@ const generateEmailTemplate = (title, content) => {
           
           <div class="content">
             <h2 style="color: ${THEME.primary}; margin-top: 0; border-bottom: 2px solid ${THEME.bg}; padding-bottom: 15px;">${title}</h2>
+            <!-- TRIPLE BRACES needed in EmailJS template: {{{content}}} -->
             ${content}
           </div>
 
@@ -60,25 +61,40 @@ const generateEmailTemplate = (title, content) => {
   `;
 };
 
+// Helper to send via EmailJS REST API
+const sendViaEmailJS = async (toEmail, subject, htmlBody) => {
+    const payload = {
+        service_id: process.env.EMAILJS_SERVICE_ID,
+        template_id: process.env.EMAILJS_TEMPLATE_ID,
+        user_id: process.env.EMAILJS_PUBLIC_KEY,
+        accessToken: process.env.EMAILJS_PRIVATE_KEY, // Optional but recommended for server-side
+        template_params: {
+            to_email: toEmail,
+            subject: subject,
+            content: htmlBody 
+        }
+    };
+    
+    // EmailJS API Endpoint
+    await axios.post('https://api.emailjs.com/api/v1.0/email/send', payload);
+};
+
 const sendEmail = async (req, res) => {
   const { type, data } = req.body;
 
-  // Create Transporter
-  const transporter = nodemailer.createTransport({
-    service: 'gmail', 
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS,
-    },
-    tls: {
-      rejectUnauthorized: false
-    }
-  });
+  console.log(`[Email Controller] Received Request: ${type} from ${data?.email}`);
+
+  // 1. Validation of Env Vars
+  if (!process.env.EMAILJS_SERVICE_ID || !process.env.EMAILJS_PUBLIC_KEY) {
+      console.error('[Email Controller] Error: Missing EmailJS Env Variables');
+      return res.status(500).json({ message: 'Server Configuration Error: Missing Email Credentials' });
+  }
 
   let subject = '';
   let htmlContent = '';
 
-  // Format email based on form type
+  try {
+  // Format email based on form type (Logic preserved)
   if (type === 'contact') {
     subject = `Message From: ${data.name} - ${data.subject}`;
     const bodyContent = `
@@ -99,7 +115,7 @@ const sendEmail = async (req, res) => {
         <div class="value" style="white-space: pre-wrap;">${data.message}</div>
       </div>
     `;
-    htmlContent = generateEmailTemplate('Contact Inquiry', bodyContent);
+    htmlContent = generateEmailTemplate('Contact Inquiry', bodyContent); // Wrapper adds header/footer
 
   } else if (type === 'admission') {
     subject = `Admission Application: ${data.firstName} ${data.lastName}`;
@@ -137,12 +153,11 @@ const sendEmail = async (req, res) => {
     `;
     htmlContent = generateEmailTemplate('Admission Application', bodyContent);
 
-    // --- Student Confirmation Email Logic ---
+    // --- Student Confirmation Email Logic (EmailJS) ---
     try {
-        // Try to find the program details to include in the user's email
+        // ... (Database Program Lookup - Unchanged) ...
         let programDetails = null;
         if (data.program) {
-            // Escape special characters for regex just in case
             const escapedProgram = data.program.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
             programDetails = await Program.findOne({
                 $or: [
@@ -210,38 +225,35 @@ const sendEmail = async (req, res) => {
                </ul>
             </div>
         `;
-
+        
+        // Wrap with template
         const studentEmailContent = generateEmailTemplate('Application Confirmation', studentBody);
 
-        // Send Email to Student in background (don't await to block response, but for reliability we usually await or queue)
-        // Here we will await to ensure it sends before finishing request, or push to array of promises.
-        await transporter.sendMail({
-            from: `"Zion Admissions" <${process.env.EMAIL_USER}>`,
-            to: data.email,
-            subject: studentSubject,
-            html: studentEmailContent
-        });
+        // SEND TO STUDENT via EmailJS
+        await sendViaEmailJS(data.email, studentSubject, studentEmailContent);
+        
+        } catch (err) {
+            console.error("Failed to send student confirmation email (EmailJS):", err?.message);
+        }
+    } // Close if type == admission
 
-    } catch (err) {
-        console.error("Failed to send student confirmation email:", err);
-        // We continue because the admin notification is the critical part
-    }
-  }
+    if (!htmlContent) throw new Error("Invalid email type or empty content");
 
-  const mailOptions = {
-    from: `"Zion Website" <${process.env.EMAIL_USER}>`,
-    to: process.env.EMAIL_RECIEVER || process.env.EMAIL_reciever || process.env.EMAIL_USER,
-    replyTo: data.email, // Allow direct reply to the user
-    subject: subject,
-    html: htmlContent,
-  };
+  // SEND TO ADMIN (School)
+  const adminEmail = process.env.EMAIL_RECIEVER || process.env.EMAIL_reciever || 'admin@zionstudycentre.com';
+  // Note: EmailJS might not support 'replyTo' easily in simple params without configuring it in the dashboard.
+  // We'll focus on just getting the email delivered first.
+  
+  await sendViaEmailJS(adminEmail, subject, htmlContent);
 
-  try {
-    await transporter.sendMail(mailOptions);
-    res.status(200).json({ message: 'Email sent successfully' });
+  res.status(200).json({ message: 'Email sent successfully via EmailJS' });
+
   } catch (error) {
-    console.error('CRITICAL EMAIL ERROR:', error);
-    res.status(500).json({ message: 'Failed to send email', error: error.message, stack: error.stack });
+    console.error('CRITICAL EMAIL ERROR (EmailJS):', error);
+    if (error.response) {
+       console.error("EmailJS Response Data:", error.response.data);
+    }
+    res.status(500).json({ message: 'Failed to send email', error: error.message });
   }
 };
 
