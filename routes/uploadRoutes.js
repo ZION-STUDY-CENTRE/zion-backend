@@ -2,24 +2,14 @@ const express = require('express');
 const router = express.Router();
 const { parser } = require('../config/cloudinary');
 const auth = require('../middleware/authMiddleware');
-<<<<<<< HEAD
-=======
 const { validateImageSize } = require('../utils/imageOptimizer');
->>>>>>> 615351df8f45de2bfcf8a9dd54cb0f1d0c3977e5
 
 router.post('/', auth, (req, res) => {
   const upload = parser.single('image');
   
-<<<<<<< HEAD
-  upload(req, res, (err) => {
-    if (err) {
-      console.error('Cloudinary Upload Error:', err);
-      // Handle DNS/Network errors specifically
-=======
   upload(req, res, async (err) => {
     if (err) {
       console.error('❌ Cloudinary Upload Error:', err);
->>>>>>> 615351df8f45de2bfcf8a9dd54cb0f1d0c3977e5
       if (err.code === 'EAI_AGAIN' || err.code === 'ENOTFOUND') {
          return res.status(503).json({ message: 'Upload service temporarily unavailable. Please check your internet connection and try again.' });
       }
@@ -27,16 +17,6 @@ router.post('/', auth, (req, res) => {
     }
 
     if (!req.file) {
-<<<<<<< HEAD
-      return res.status(400).json({ message: 'No file uploaded' });
-    }
-    
-    res.json({
-      message: 'Image uploaded successfully',
-      imageUrl: req.file.path, // Cloudinary URL
-      public_id: req.file.filename
-    });
-=======
       console.error('❌ No file received');
       return res.status(400).json({ message: 'No file uploaded' });
     }
@@ -86,7 +66,6 @@ router.post('/', auth, (req, res) => {
       console.error('❌ Image processing error:', error);
       res.status(500).json({ message: 'Image processing failed', error: error.message });
     }
->>>>>>> 615351df8f45de2bfcf8a9dd54cb0f1d0c3977e5
   });
 });
 
