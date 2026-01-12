@@ -62,7 +62,7 @@ const generateEmailTemplate = (title, content) => {
 };
 
 // Helper to send via EmailJS REST API
-const sendViaEmailJS = async (toEmail, subject, htmlBody) => {
+const sendViaEmailJS = async (toEmail, subject, htmlBody, replyToEmail = null) => {
     const payload = {
         service_id: process.env.EMAILJS_SERVICE_ID,
         template_id: process.env.EMAILJS_TEMPLATE_ID,
@@ -71,7 +71,8 @@ const sendViaEmailJS = async (toEmail, subject, htmlBody) => {
         template_params: {
             to_email: toEmail,
             subject: subject,
-            content: htmlBody 
+            content: htmlBody,
+            reply_to: replyToEmail 
         }
     };
     
@@ -244,7 +245,7 @@ const sendEmail = async (req, res) => {
   // Note: EmailJS might not support 'replyTo' easily in simple params without configuring it in the dashboard.
   // We'll focus on just getting the email delivered first.
   
-  await sendViaEmailJS(adminEmail, subject, htmlContent);
+  await sendViaEmailJS(adminEmail, subject, htmlContent, data.email);
 
   res.status(200).json({ message: 'Email sent successfully via EmailJS' });
 
