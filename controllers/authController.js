@@ -8,6 +8,7 @@ const RefreshToken = require('../models/RefreshToken');
 const generateAccessToken = (user) => {
   const payload = {
     user: {
+      _id: user._id,
       id: user.id,
       role: user.role
     }
