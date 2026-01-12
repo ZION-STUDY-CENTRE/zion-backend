@@ -62,7 +62,7 @@ const generateEmailTemplate = (title, content) => {
 };
 
 // Helper to send via EmailJS REST API
-const sendViaEmailJS = async (toEmail, subject, htmlBody, replyToEmail = null) => {
+const sendViaEmailJS = async (toEmail, subject, htmlBody, replyToEmail) => {
     const payload = {
         service_id: process.env.EMAILJS_SERVICE_ID,
         template_id: process.env.EMAILJS_TEMPLATE_ID,
@@ -84,6 +84,9 @@ const sendEmail = async (req, res) => {
   const { type, data } = req.body;
 
   console.log(`[Email Controller] Received Request: ${type} from ${data?.email}`);
+
+  // DEFINE ADMIN EMAIL TOP
+  const adminEmail = process.env.EMAIL_RECIEVER || process.env.EMAIL_reciever || 'admin@zionstudycentre.com';
 
   // 1. Validation of Env Vars
   if (!process.env.EMAILJS_SERVICE_ID || !process.env.EMAILJS_PUBLIC_KEY) {
@@ -231,7 +234,8 @@ const sendEmail = async (req, res) => {
         const studentEmailContent = generateEmailTemplate('Application Confirmation', studentBody);
 
         // SEND TO STUDENT via EmailJS
-        await sendViaEmailJS(data.email, studentSubject, studentEmailContent);
+        // REPLY-TO is set to 'adminEmail' so student replies to school
+        await sendViaEmailJS(data.email, studentSubject, studentEmailContent, adminEmail);
         
         } catch (err) {
             console.error("Failed to send student confirmation email (EmailJS):", err?.message);
@@ -241,9 +245,7 @@ const sendEmail = async (req, res) => {
     if (!htmlContent) throw new Error("Invalid email type or empty content");
 
   // SEND TO ADMIN (School)
-  const adminEmail = process.env.EMAIL_RECIEVER || process.env.EMAIL_reciever || 'admin@zionstudycentre.com';
-  // Note: EmailJS might not support 'replyTo' easily in simple params without configuring it in the dashboard.
-  // We'll focus on just getting the email delivered first.
+  // const adminEmail is now defined at the top
   
   await sendViaEmailJS(adminEmail, subject, htmlContent, data.email);
 
