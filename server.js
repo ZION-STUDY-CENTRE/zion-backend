@@ -4,7 +4,10 @@ const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const dotenv = require('dotenv');
 const dns = require('dns');
+const http = require('http');
 const emailRoutes = require('./routes/emailRoutes');
+const { initializeSocket } = require('./config/socket');
+const { setIO } = require('./config/ioInstance');
 
 // Fix for ESERVFAIL DNS Timeout on some networks
 try {
@@ -20,6 +23,13 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+const server = http.createServer(app);
+
+// Initialize Socket.io
+const io = initializeSocket(server);
+
+// Set io instance for controllers
+setIO(io);
 
 // Middleware
 const allowedOrigins = [
@@ -71,13 +81,17 @@ app.use('/api/email', emailRoutes);
 app.use('/api/assignments', require('./routes/assignmentRoutes'));
 app.use('/api/assignment-submissions', require('./routes/assignmentSubmissionRoutes'));
 app.use('/api/quizzes', require('./routes/quizRoutes'));
-app.use('/api/files', require('./routes/fileResourceRoutes')); 
+app.use('/api/files', require('./routes/fileResourceRoutes'));
+app.use('/api/testimonials', require('./routes/testimonialRoutes'));
+app.use('/api/notifications', require('./routes/notificationRoutes'));
+app.use('/api/chat', require('./routes/chatRoutes'));
 
 app.get('/', (req, res) => {
   res.send('Zion Study Centre API is running');
 });
 
 // Start Server
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+server.listen(PORT, () => {
+  console.log(`✨ Server running on port ${PORT}`);
+  console.log(`🔌 Socket.io initialized`);
 });
