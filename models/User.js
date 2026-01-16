@@ -33,6 +33,13 @@ const UserSchema = new mongoose.Schema({
     type: Number, // In Months
     default: 3 
   },
+  // Verification Fields
+  isEmailVerified: {
+    type: Boolean,
+    default: false
+  },
+  verificationToken: String,
+  verificationTokenExpire: Date,
   isActive: {
     type: Boolean,
     default: true

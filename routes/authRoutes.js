@@ -8,6 +8,8 @@ const roleMiddleware = require('../middleware/roleMiddleware');
 router.post('/login', authController.login);
 router.post('/logout', authController.logout);
 router.post('/refresh', authController.refreshToken);
+router.post('/verify-email', authController.verifyEmail);
+router.post('/resend-verification', authController.resendVerification);
 
 // Protected Routes
 // Get current user

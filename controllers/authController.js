@@ -3,6 +3,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const RefreshToken = require('../models/RefreshToken');
+const axios = require('axios');
 
 // Helper to generate Access Token (JWT)
 const generateAccessToken = (user) => {
@@ -47,8 +48,41 @@ const setTokenCookies = (res, accessToken, refreshToken) => {
         secure: process.env.NODE_ENV === 'production',
         sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
         path: '/api/auth/refresh', // Restricted path
-        maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+        maxAge: 24 * 60 * 60 * 1000 // 1 day
     });
+};
+
+// Helper: Send Verification Email
+const sendVerificationEmail = async (user, token) => {
+    const verificationUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/verify-email?token=${token}`;
+    
+    // We use the same structure as your emailController
+    const payload = {
+        service_id: process.env.EMAILJS_SERVICE_ID,
+        template_id: process.env.EMAILJS_TEMPLATE_ID, // Use your Zion Master Template
+        user_id: process.env.EMAILJS_PUBLIC_KEY,
+        accessToken: process.env.EMAILJS_PRIVATE_KEY,
+        template_params: {
+            to_email: user.email,
+            subject: "Activate Your Zion Student Account",
+            content: `
+                <p>Hello ${user.name},</p>
+                <p>Your student account has been created at Zion Study Centre.</p>
+                <p>Please verify your email address to activate your account and set up your password.</p>
+                <div style="text-align: center; margin: 30px 0;">
+                    <a href="${verificationUrl}" style="background-color: #1e3a8a; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold;">Verify Email</a>
+                </div>
+                <p>or copy this link: ${verificationUrl}</p>
+            `,
+            reply_to: 'admin@zionstudycentre.com'
+        }
+    };
+    
+    try {
+        await axios.post('https://api.emailjs.com/api/v1.0/email/send', payload);
+    } catch (err) {
+        console.error("Failed to send verification email:", err.message);
+    }
 };
 
 // @desc    Authenticate user & get token
@@ -67,6 +101,15 @@ exports.login = async (req, res) => {
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return res.status(400).json({ msg: 'Invalid Credentials' });
+    }
+
+    // Check Email Verification for Students
+    if (user.role === 'student' && !user.isEmailVerified) {
+        return res.status(403).json({ 
+            msg: 'Email not verified', 
+            code: 'EMAIL_NOT_VERIFIED',
+            email: user.email 
+        });
     }
 
     // Check Automation Logic: Student Expiration
@@ -229,6 +272,10 @@ exports.registerUser = async (req, res) => {
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(passwordToSave, salt);
 
+    // Generate Verification Token
+    const verificationToken = crypto.randomBytes(20).toString('hex');
+    const verificationTokenExpire = Date.now() + 24 * 60 * 60 * 1000; // 24 hours
+
     user = new User({
       name,
       email,
@@ -236,12 +283,21 @@ exports.registerUser = async (req, res) => {
       role,
       program: enrolledProgram || undefined, // Map enrolledProgram to program
       programDuration: durationMonths || 3, // Set student specific duration
-      isFirstLogin: true 
+      isFirstLogin: true,
+      // Admins are auto-verified, Students need verification
+      isEmailVerified: role === 'student' ? false : true,
+      verificationToken: role === 'student' ? verificationToken : undefined,
+      verificationTokenExpire: role === 'student' ? verificationTokenExpire : undefined
     });
 
     await user.save();
 
-    res.json({ msg: 'User registered successfully with default password (zion123)', user: { id: user.id, name: user.name, role: user.role } });
+    // Send the email immediately for students
+    if (role === 'student') {
+        await sendVerificationEmail(user, verificationToken);
+    }
+
+    res.json({ msg: 'User registered. Verification email sent (if student).', user: { id: user.id, name: user.name, role: user.role } });
   } catch (err) {
     console.error(err.message);
     res.status(500).send('Server error');
@@ -267,4 +323,56 @@ exports.changePassword = async (req, res) => {
     console.error(err.message);
     res.status(500).send('Server error');
   }
+};
+
+// --- NEW: Verify Email Endpoint ---
+// @route   POST /api/auth/verify-email
+exports.verifyEmail = async (req, res) => {
+    const { token } = req.body;
+
+    try {
+        const user = await User.findOne({
+            verificationToken: token,
+            verificationTokenExpire: { $gt: Date.now() } // Ensure not expired
+        });
+
+        if (!user) {
+            return res.status(400).json({ msg: 'Invalid or expired verification token' });
+        }
+
+        user.isEmailVerified = true;
+        user.verificationToken = undefined;
+        user.verificationTokenExpire = undefined;
+        await user.save();
+
+        res.json({ msg: 'Email verified successfully. You can now login.' });
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send('Server error');
+    }
+};
+
+// --- NEW: Resend Verification Email ---
+// @route   POST /api/auth/resend-verification
+exports.resendVerification = async (req, res) => {
+    const { email } = req.body;
+    try {
+        const user = await User.findOne({ email });
+        
+        if (!user) return res.status(404).json({ msg: 'User not found' });
+        if (user.isEmailVerified) return res.status(400).json({ msg: 'Email already verified' });
+
+        // Generate new token
+        const verificationToken = crypto.randomBytes(20).toString('hex');
+        user.verificationToken = verificationToken;
+        user.verificationTokenExpire = Date.now() + 24 * 60 * 60 * 1000;
+        await user.save();
+
+        await sendVerificationEmail(user, verificationToken);
+        
+        res.json({ msg: 'Verification email resent' });
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send('Server error');
+    }
 };
