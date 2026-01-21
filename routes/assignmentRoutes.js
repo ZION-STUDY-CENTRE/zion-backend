@@ -1,8 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const Assignment = require('../models/Assignment');
+const User = require('../models/User');
 const authMiddleware = require('../middleware/authMiddleware');
 const roleMiddleware = require('../middleware/roleMiddleware');
+const { createNotification } = require('../controllers/notificationController');
+const { getIO } = require('../config/ioInstance');
 
 // Get all assignments for a program
 router.get('/program/:programId', authMiddleware, async (req, res) => {
@@ -35,6 +38,9 @@ router.post('/', authMiddleware, roleMiddleware('instructor', 'admin'), async (r
   const { title, description, program, dueDate, scheduledDate, attachments } = req.body;
 
   try {
+    // Get the full user object to access name
+    const instructor = await User.findById(req.user.id);
+    
     const assignment = new Assignment({
       title,
       description,
@@ -48,6 +54,39 @@ router.post('/', authMiddleware, roleMiddleware('instructor', 'admin'), async (r
 
     const savedAssignment = await assignment.save();
     const populated = await savedAssignment.populate('createdBy', 'name email');
+    
+    // Get all students enrolled in this program
+    const students = await User.find({ program: program, role: 'student' });
+    console.log(`[Assignment Notification] 📚 Created assignment "${title}" for ${students.length} students`);
+    
+    // Create notifications for all enrolled students
+    for (const student of students) {
+      await createNotification(
+        student._id,
+        'assignment',
+        `New Assignment: ${title}`,
+        `Mr. ${instructor.name} assigned "${title}"`,
+        {},
+        req.user.id,
+        savedAssignment._id,
+        'Assignment'
+      );
+    }
+    
+    // Emit real-time notification via Socket.io
+    const io = getIO();
+    if (io) {
+      students.forEach(student => {
+        io.to(`user:${student._id.toString()}`).emit('notification:assignment-shared', {
+          assignmentId: savedAssignment._id,
+          assignmentTitle: title,
+          instructorName: `Mr. ${instructor.name}`,
+          programId: program,
+          dueDate: dueDate
+        });
+      });
+    }
+    
     res.status(201).json(populated);
   } catch (error) {
     res.status(400).json({ message: error.message });

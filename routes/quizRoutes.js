@@ -2,8 +2,11 @@ const express = require('express');
 const router = express.Router();
 const Quiz = require('../models/Quiz');
 const QuizSubmission = require('../models/QuizSubmission');
+const User = require('../models/User');
 const authMiddleware = require('../middleware/authMiddleware');
 const roleMiddleware = require('../middleware/roleMiddleware');
+const { createNotification } = require('../controllers/notificationController');
+const { getIO } = require('../config/ioInstance');
 
 // Get all quizzes for a program
 router.get('/program/:programId', authMiddleware, async (req, res) => {
@@ -55,6 +58,9 @@ router.post('/', authMiddleware, roleMiddleware('instructor', 'admin'), async (r
   const { title, description, program, dueDate, scheduledDate, duration, passingMarks, questions } = req.body;
 
   try {
+    // Get the full user object to access name
+    const instructor = await User.findById(req.user.id);
+    
     // Calculate total marks
     const totalMarks = questions.reduce((sum, q) => sum + (q.marks || 1), 0);
 
@@ -77,6 +83,39 @@ router.post('/', authMiddleware, roleMiddleware('instructor', 'admin'), async (r
 
     const savedQuiz = await quiz.save();
     const populated = await savedQuiz.populate('createdBy', 'name email');
+    
+    // Get all students enrolled in this program
+    const students = await User.find({ program: program, role: 'student' });
+    console.log(`[Quiz Notification] 📝 Created quiz "${title}" for ${students.length} students`);
+    
+    // Create notifications for all enrolled students
+    for (const student of students) {
+      await createNotification(
+        student._id,
+        'quiz',
+        `New Quiz: ${title}`,
+        `Mr. ${instructor.name} created a new quiz: "${title}"`,
+        {},
+        req.user.id,
+        savedQuiz._id,
+        'Quiz'
+      );
+    }
+    
+    // Emit real-time notification via Socket.io
+    const io = getIO();
+    if (io) {
+      students.forEach(student => {
+        io.to(`user:${student._id.toString()}`).emit('notification:quiz-created', {
+          quizId: savedQuiz._id,
+          quizTitle: title,
+          instructorName: `Mr. ${instructor.name}`,
+          programId: program,
+          dueDate: dueDate
+        });
+      });
+    }
+    
     res.status(201).json(populated);
   } catch (error) {
     res.status(400).json({ message: error.message });

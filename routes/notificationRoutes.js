@@ -13,22 +13,22 @@ const {
 // All routes require authentication
 router.use(authMiddleware);
 
+// Get unread notification count - MUST come before /:notificationId routes
+router.get('/unread/count', getUnreadCount);
+
 // Get all notifications for current user
 router.get('/', getNotifications);
 
-// Get unread notification count
-router.get('/unread/count', getUnreadCount);
+// Mark all notifications as read - MUST come before /:notificationId routes
+router.put('/all/read', markAllAsRead);
+
+// Clear all notifications - MUST come before /:notificationId routes
+router.delete('/all/clear', clearAllNotifications);
 
 // Mark notification as read
 router.put('/:notificationId/read', markAsRead);
 
-// Mark all notifications as read
-router.put('/all/read', markAllAsRead);
-
 // Delete a notification
 router.delete('/:notificationId', deleteNotification);
-
-// Clear all notifications
-router.delete('/all/clear', clearAllNotifications);
 
 module.exports = router;
