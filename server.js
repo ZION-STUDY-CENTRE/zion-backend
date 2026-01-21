@@ -34,6 +34,8 @@ setIO(io);
 // Middleware
 const allowedOrigins = [
   'http://localhost:5173',
+  'http://localhost:19006',
+  'http://localhost:19007',
   'https://zionstudycentrewebsiteui.vercel.app',
   ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : [])
 ];

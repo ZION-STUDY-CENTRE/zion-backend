@@ -5,7 +5,10 @@ const User = require('../models/User');
 exports.getNotifications = async (req, res) => {
   try {
     const userId = req.user?._id;
+    console.log('[NotificationController] 📋 getNotifications - userId:', userId);
+    
     if (!userId) {
+      console.log('[NotificationController] ❌ User not authenticated');
       return res.status(400).json({ error: 'User not authenticated' });
     }
 
@@ -14,9 +17,10 @@ exports.getNotifications = async (req, res) => {
       .sort({ createdAt: -1 })
       .limit(50);
 
+    console.log('[NotificationController] ✅ Found', notifications.length, 'notifications for user:', userId);
     res.json(notifications);
   } catch (error) {
-    console.error('Error fetching notifications:', error);
+    console.error('[NotificationController] ❌ Error fetching notifications:', error);
     res.status(500).json({ error: error.message });
   }
 };
@@ -25,7 +29,10 @@ exports.getNotifications = async (req, res) => {
 exports.getUnreadCount = async (req, res) => {
   try {
     const userId = req.user?._id;
+    console.log('[NotificationController] 🔢 getUnreadCount - userId:', userId);
+    
     if (!userId) {
+      console.log('[NotificationController] ❌ User not authenticated');
       return res.status(400).json({ error: 'User not authenticated' });
     }
 
@@ -34,9 +41,10 @@ exports.getUnreadCount = async (req, res) => {
       isRead: false 
     });
 
+    console.log('[NotificationController] ✅ Unread count:', count, 'for user:', userId);
     res.json({ unreadCount: count });
   } catch (error) {
-    console.error('Error fetching unread count:', error);
+    console.error('[NotificationController] ❌ Error fetching unread count:', error);
     res.status(500).json({ error: error.message });
   }
 };
