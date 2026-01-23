@@ -39,7 +39,7 @@ const setTokenCookies = (res, accessToken, refreshToken) => {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
         sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', // Lax is better for staying logged in during navigation, but None required for cross-site
-        maxAge: 10 * 60 * 1000 // 10 minutes
+        maxAge: 15 * 60 * 60 * 1000 // 15 hour
     });
 
     // Refresh Token Cookie (Long lived)
@@ -90,6 +90,7 @@ const sendVerificationEmail = async (user, token) => {
 // @access  Public
 exports.login = async (req, res) => {
   const { email, password } = req.body;
+    console.log("LOCAL BACKEND LOGIN HIT", { email });
 
   try {
     let user = await User.findOne({ email });
@@ -148,16 +149,18 @@ exports.login = async (req, res) => {
 
     setTokenCookies(res, accessToken, refreshToken);
 
+    console.log("LOGIN RESPONSE SENT FROM LOCAL BACKEND", { token: typeof accessToken, user: user.email });
     res.json({
-        msg: 'Login successful',
-        user: {
-            id: user.id,
-            name: user.name,
-            email: user.email,
-            role: user.role,
-            isFirstLogin: user.isFirstLogin,
-            program: user.program
-        }
+      msg: 'Login successful',
+      token: accessToken,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        isFirstLogin: user.isFirstLogin,
+        program: user.program
+      }
     });
   } catch (err) {
     console.error(err.message);
