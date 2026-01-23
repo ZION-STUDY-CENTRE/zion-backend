@@ -10,6 +10,12 @@ router.get('/program/:programId',
     userController.getStudentsByProgram
 );
 
+// Assign program to instructor (Admin only)
+router.put('/assign-program/:instructorId',
+    [authMiddleware, roleMiddleware('admin')],
+    userController.assignProgramToInstructor
+);
+
 // Get all instructors (For Admin to assign them)
 router.get('/instructors', 
     [authMiddleware, roleMiddleware('admin')], 

@@ -1,8 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const FileResource = require('../models/FileResource');
+const User = require('../models/User');
 const authMiddleware = require('../middleware/authMiddleware');
 const roleMiddleware = require('../middleware/roleMiddleware');
+const { createNotification } = require('../controllers/notificationController');
+const { getIO } = require('../config/ioInstance');
 
 // Get all files for a program
 router.get('/program/:programId', authMiddleware, async (req, res) => {
@@ -56,6 +59,9 @@ router.post('/', authMiddleware, async (req, res) => {
   const { title, description, program, fileUrl, fileName, fileType, fileSize, resourceType, visibility, accessibleTo } = req.body;
 
   try {
+    // Get the full user object to access name
+    const uploader = await User.findById(req.user.id);
+    
     const fileResource = new FileResource({
       title,
       description,
@@ -72,6 +78,45 @@ router.post('/', authMiddleware, async (req, res) => {
 
     const saved = await fileResource.save();
     const populated = await saved.populate('uploadedBy', 'name email');
+    
+    // Get all students enrolled in this program if visibility is public
+    let notificationRecipients = [];
+    if (visibility === 'public' || visibility === 'private') {
+      notificationRecipients = await User.find({ program: program, role: 'student' });
+    } else if (visibility === 'specific-students' && accessibleTo.length > 0) {
+      notificationRecipients = await User.find({ _id: { $in: accessibleTo }, role: 'student' });
+    }
+    
+    console.log(`[File Notification] 📄 Uploaded "${title}" for ${notificationRecipients.length} students`);
+    
+    // Create notifications for all students
+    for (const student of notificationRecipients) {
+      await createNotification(
+        student._id,
+        'material',
+        `New Study Material: ${title}`,
+        `Mr. ${uploader.name} uploaded "${title}"`,
+        {},
+        req.user.id,
+        saved._id,
+        'FileResource'
+      );
+    }
+    
+    // Emit real-time notification via Socket.io
+    const io = getIO();
+    if (io && notificationRecipients.length > 0) {
+      notificationRecipients.forEach(student => {
+        io.to(`user:${student._id.toString()}`).emit('notification:material-shared', {
+          materialId: saved._id,
+          materialTitle: title,
+          uploaderName: `Mr. ${uploader.name}`,
+          programId: program,
+          resourceType: resourceType || 'study-material'
+        });
+      });
+    }
+    
     res.status(201).json(populated);
   } catch (error) {
     res.status(400).json({ message: error.message });

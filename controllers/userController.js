@@ -17,6 +17,38 @@ exports.getStudentsByProgram = async (req, res) => {
   }
 };
 
+// @desc    Assign a program to an instructor
+// @route   PUT /api/users/assign-program/:instructorId
+// @access  Private (Admin)
+exports.assignProgramToInstructor = async (req, res) => {
+  try {
+    const { programId } = req.body;
+    const { instructorId } = req.params;
+
+    if (!programId) {
+      return res.status(400).json({ msg: 'Program ID is required' });
+    }
+
+    const instructor = await User.findById(instructorId);
+    if (!instructor) {
+      return res.status(404).json({ msg: 'Instructor not found' });
+    }
+
+    if (instructor.role !== 'instructor') {
+      return res.status(400).json({ msg: 'User is not an instructor' });
+    }
+
+    instructor.program = programId;
+    await instructor.save();
+
+    console.log(`✅ Assigned instructor ${instructor.name} to program ${programId}`);
+    res.json({ msg: 'Program assigned successfully', instructor });
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send('Server error');
+  }
+};
+
 // @desc    Get all instructors
 // @route   GET /api/users/instructors
 // @access  Private (Admin)

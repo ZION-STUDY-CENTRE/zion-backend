@@ -32,7 +32,7 @@ const notificationSchema = new mongoose.Schema({
   
   relatedType: {
     type: String,
-    enum: ['Conversation', 'Assignment', 'Quiz', 'Submission', 'User']
+    enum: ['Conversation', 'Assignment', 'Quiz', 'Submission', 'User', 'FileResource', 'Message']
   },
   
   // User who triggered the notification
