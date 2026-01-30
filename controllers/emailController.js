@@ -9,7 +9,7 @@ const THEME = {
   surface: '#ffffff',
   text: '#1f2937',
   textLight: '#6b7280',
-  logoUrl: 'https://zionstudycentrewebsiteui.vercel.app/logo.png'
+  logoUrl: 'https://zion-frontend-ashen.vercel.app/logo.png'
 };
 
 const generateEmailTemplate = (title, content) => {
