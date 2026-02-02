@@ -173,13 +173,8 @@ exports.login = async (req, res) => {
 // @access  Public
 exports.logout = async (req, res) => {
     const refreshToken = req.cookies.refreshToken;
-    const accessToken = req.cookies.accessToken;
     if (refreshToken) {
         await RefreshToken.findOneAndDelete({ token: refreshToken }); // Simply remove it or mark revoked
-    }
-    
-    if (accessToken) {
-        await accessToken.findOneAndDelete({ token: accessToken }); // Simply remove it or mark revoked
     }
 
     res.clearCookie('accessToken');
