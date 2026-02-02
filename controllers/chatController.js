@@ -415,3 +415,66 @@ exports.deleteConversation = async (req, res) => {
   }
 };
 
+// Mark messages as read
+exports.markMessagesAsRead = async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    const userId = req.user?._id;
+    
+    if (!userId) {
+      return res.status(400).json({ error: 'User not authenticated properly' });
+    }
+
+    // Verify user is participant
+    const conversation = await Conversation.findById(conversationId);
+    if (!conversation) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+    
+    const userIdString = userId.toString();
+    const isParticipant = conversation.participants.some(p => p.toString() === userIdString);
+    if (!isParticipant) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    // Mark all messages in conversation from other senders as read
+    const result = await Message.updateMany(
+      {
+        conversationId,
+        sender: { $ne: userId },
+        status: { $ne: 'read' }
+      },
+      {
+        $set: { 
+          status: 'read',
+          readAt: new Date()
+        },
+        $addToSet: {
+          readBy: {
+            user: userId,
+            readAt: new Date()
+          }
+        }
+      }
+    );
+
+    // Emit read receipt to other participants via Socket.io
+    const io = getIO();
+    if (io) {
+      const room = `conversation:${conversationId}`;
+      io.to(room).emit('messages:read', {
+        conversationId,
+        readBy: userId,
+        timestamp: new Date()
+      });
+    }
+
+    res.json({ 
+      message: 'Messages marked as read',
+      modifiedCount: result.modifiedCount
+    });
+  } catch (error) {
+    console.error('Error in markMessagesAsRead:', error);
+    res.status(500).json({ error: error.message });
+  }
+};

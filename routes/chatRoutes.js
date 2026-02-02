@@ -8,7 +8,8 @@ const {
   getOrCreateConversation,
   createGroupConversation,
   getAllUsers,
-  deleteConversation
+  deleteConversation,
+  markMessagesAsRead
 } = require('../controllers/chatController');
 
 // All routes require authentication
@@ -34,5 +35,8 @@ router.get('/users', getAllUsers);
 
 // Delete a conversation
 router.delete('/conversations/:conversationId', deleteConversation);
+
+// Mark messages as read
+router.put('/messages/:conversationId/mark-read', markMessagesAsRead);
 
 module.exports = router;

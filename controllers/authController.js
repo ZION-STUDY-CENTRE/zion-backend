@@ -172,11 +172,12 @@ exports.login = async (req, res) => {
 // @route   POST /api/auth/logout
 // @access  Public
 exports.logout = async (req, res) => {
+  try {
     const refreshToken = req.cookies.refreshToken;
 
     res.clearCookie('accessToken');
     if (refreshToken) {
-        await RefreshToken.findOneAndDelete({ token: refreshToken }); // Simply remove it or mark revoked
+      await RefreshToken.findOneAndDelete({ token: refreshToken });
     }
     res.clearCookie('refreshToken', { path: '/api/auth/refresh' });
     
@@ -184,7 +185,12 @@ exports.logout = async (req, res) => {
     res.clearCookie('token'); 
     
     res.json({ msg: 'Logged out successfully' });
+  } catch (err) {
+    console.error("Logout error:", err);
+    res.status(500).json({ msg: 'Logout failed' });
+  }
 };
+
 
 // @desc    Refresh Access Token
 // @route   POST /api/auth/refresh
