@@ -52,11 +52,123 @@ const setTokenCookies = (res, accessToken, refreshToken) => {
     });
 };
 
-// Helper: Send Verification Email
+// Helper: Send Verification Email with Student Login Instructions
 const sendVerificationEmail = async (user, token) => {
     const verificationUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/verify-email?token=${token}`;
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
     
-    // We use the same structure as your emailController
+    // Custom HTML template with student login instructions
+    const emailContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <style>
+                body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333; }
+                .container { max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9f9f9; border-radius: 8px; }
+                .header { background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%); color: white; padding: 30px 20px; text-align: center; border-radius: 8px 8px 0 0; }
+                .header h1 { margin: 0; font-size: 28px; }
+                .content { background: white; padding: 30px; border-radius: 0 0 8px 8px; }
+                .section { margin-bottom: 25px; }
+                .section-title { font-size: 18px; font-weight: bold; color: #1e3a8a; margin-bottom: 12px; border-bottom: 2px solid #dbeafe; padding-bottom: 8px; }
+                .credentials-box { background-color: #eff6ff; border-left: 4px solid #3b82f6; padding: 15px; margin: 15px 0; border-radius: 4px; }
+                .credentials-box p { margin: 8px 0; }
+                .label { font-weight: bold; color: #1e3a8a; }
+                .value { font-family: 'Courier New', monospace; color: #2563eb; word-break: break-all; }
+                .button-container { text-align: center; margin: 25px 0; }
+                .verify-button { display: inline-block; background-color: #1e3a8a; color: white; padding: 14px 32px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px; transition: background-color 0.3s; }
+                .verify-button:hover { background-color: #1e40af; }
+                .link-text { color: #3b82f6; word-break: break-all; font-size: 12px; }
+                .steps { counter-reset: step-counter; }
+                .step { counter-increment: step-counter; margin-bottom: 15px; padding-left: 30px; position: relative; }
+                .step::before { content: counter(step-counter); position: absolute; left: 0; top: 0; background-color: #3b82f6; color: white; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; }
+                .warning { background-color: #fef3c7; border-left: 4px solid #f59e0b; padding: 12px; margin: 15px 0; border-radius: 4px; color: #92400e; }
+                .footer { background-color: #f3f4f6; padding: 20px; text-align: center; font-size: 12px; color: #6b7280; border-radius: 0 0 8px 8px; }
+                .footer-link { color: #3b82f6; text-decoration: none; }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <img src="https://raw.githubusercontent.com/ZION-STUDY-CENTRE/zion-frontend/main/public/logo.png" alt="Zion Study Centre Logo" style="width: 60px; height: auto; margin-bottom: 15px;">
+                    <h1> Welcome to Zion Study Centre!</h1>
+                </div>
+                
+                <div class="content">
+                    <p>Hello <span class="label">${user.name}</span>,</p>
+                    
+                    <p>Your student account has been successfully created at <strong>Zion Study Centre</strong>. We're excited to have you on board!</p>
+                    
+                    <!-- Step 1: Verify Email -->
+                    <div class="section">
+                        <div class="section-title">Step 1: Verify Your Email</div>
+                        <p>Please verify your email address to activate your account:</p>
+                        <div class="button-container">
+                            <a href="${verificationUrl}" class="verify-button">✓ Verify Email Address</a>
+                        </div>
+                       
+                    </div>
+                    
+                    <!-- Step 2: Login Credentials -->
+                    <div class="section">
+                        <div class="section-title">Step 2: Login to Your Account</div>
+                        <p>After verifying your email, use these credentials to log in:</p>
+                        
+                        <div class="credentials-box">
+                            <p><span class="label">Email:</span><br><span class="value">${user.email}</span></p>
+                            <p><span class="label">Default Password:</span><br><span class="value">zion123</span></p>
+                        </div>
+                        
+                        <p>You can access the student portal here: <a href="${frontendUrl}" class="footer-link">${frontendUrl}</a></p>
+                    </div>
+                    
+                    <!-- Getting Started -->
+                    <div class="section">
+                        <div class="section-title">Getting Started</div>
+                        <div class="steps">
+                            <div class="step">
+                                Verify your email using the button above
+                            </div>
+                            <div class="step">
+                                Log in with your email and the default password
+                            </div>
+                            <div class="step">
+                                Change your password on your first login for security
+                            </div>
+                            <div class="step">
+                                Complete your profile and start your learning journey
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Security Warning -->
+                    <div class="warning">
+                        <strong>⚠️ Security Reminder:</strong> Please change your default password immediately after your first login. Never share your login credentials with anyone.
+                    </div>
+                    
+                    <!-- Support -->
+                    <div class="section">
+                        <div class="section-title">Need Help?</div>
+                        <p>If you have any questions or encounter any issues, please contact our support team:</p>
+                        <p>📧 Email: <a href="mailto:support@zionstudycentre.com" class="footer-link">support@zionstudycentre.com</a></p>
+                        <p>🌐 Visit our website: <a href="${frontendUrl}" class="footer-link">Zion Study Centre</a></p>
+                    </div>
+                    
+                    <!-- Closing -->
+                    <p>Best regards,<br><strong>The Zion Study Centre Team</strong></p>
+                </div>
+                
+                <div class="footer">
+                    <p>© 2024-2026 Zion Study Centre. All rights reserved.</p>
+                    <p>This email was sent to <span class="label">${user.email}</span> as part of your account verification.</p>
+                    <p>If you didn't create this account, please ignore this email.</p>
+                </div>
+            </div>
+        </body>
+        </html>
+    `;
+    
+    // Use the same structure as your emailController
     const payload = {
         service_id: process.env.EMAILJS_SERVICE_ID,
         template_id: process.env.EMAILJS_TEMPLATE_ID, // Use your Zion Master Template
@@ -64,16 +176,9 @@ const sendVerificationEmail = async (user, token) => {
         accessToken: process.env.EMAILJS_PRIVATE_KEY,
         template_params: {
             to_email: user.email,
-            subject: "Activate Your Zion Student Account",
-            content: `
-                <p>Hello ${user.name},</p>
-                <p>Your student account has been created at Zion Study Centre.</p>
-                <p>Please verify your email address to activate your account and set up your password.</p>
-                <div style="text-align: center; margin: 30px 0;">
-                    <a href="${verificationUrl}" style="background-color: #1e3a8a; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold;">Verify Email</a>
-                </div>
-                <p>or copy this link: ${verificationUrl}</p>
-            `,
+            from_name: 'ZION STUDY CENTRE',
+            subject: "Welcome to Zion Study Centre - Verify Your Email & Login Instructions",
+            content: emailContent,
             reply_to: 'admin@zionstudycentre.com'
         }
     };
