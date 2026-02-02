@@ -175,16 +175,23 @@ exports.logout = async (req, res) => {
   try {
     const refreshToken = req.cookies.refreshToken;
 
-    res.clearCookie('accessToken');
+    // Delete refresh token from database
     if (refreshToken) {
       await RefreshToken.findOneAndDelete({ token: refreshToken });
     }
-    res.clearCookie('refreshToken', { path: '/api/auth/refresh' });
+
+    // Clear all auth cookies with proper options
+    const cookieOptions = {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    };
+
+    res.clearCookie('accessToken', cookieOptions);
+    res.clearCookie('refreshToken', { ...cookieOptions, path: '/api/auth/refresh' });
+    res.clearCookie('token', cookieOptions); // Legacy token cookie
     
-    // Also clear the old 'token' cookie just in case (migration)
-    res.clearCookie('token'); 
-    
-    res.json({ msg: 'Logged out successfully' });
+    res.status(200).json({ msg: 'Logged out successfully' });
   } catch (err) {
     console.error("Logout error:", err);
     res.status(500).json({ msg: 'Logout failed' });
