@@ -90,7 +90,8 @@ const sendVerificationEmail = async (user, token) => {
         <body>
             <div class="container">
                 <div class="header">
-                    <h1>🎓 Welcome to Zion Study Centre!</h1>
+                    <img src="https://raw.githubusercontent.com/ZION-STUDY-CENTRE/zion-frontend/main/public/logo.png" alt="Zion Study Centre Logo" style="width: 60px; height: auto; margin-bottom: 15px;">
+                    <h1> Welcome to Zion Study Centre!</h1>
                 </div>
                 
                 <div class="content">
@@ -105,10 +106,7 @@ const sendVerificationEmail = async (user, token) => {
                         <div class="button-container">
                             <a href="${verificationUrl}" class="verify-button">✓ Verify Email Address</a>
                         </div>
-                        <p style="text-align: center; color: #6b7280; font-size: 13px;">
-                            Or copy this link:<br>
-                            <span class="link-text">${verificationUrl}</span>
-                        </p>
+                       
                     </div>
                     
                     <!-- Step 2: Login Credentials -->
@@ -178,6 +176,7 @@ const sendVerificationEmail = async (user, token) => {
         accessToken: process.env.EMAILJS_PRIVATE_KEY,
         template_params: {
             to_email: user.email,
+            from_name: 'ZION STUDY CENTRE',
             subject: "Welcome to Zion Study Centre - Verify Your Email & Login Instructions",
             content: emailContent,
             reply_to: 'admin@zionstudycentre.com'
