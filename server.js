@@ -1,7 +1,6 @@
 require('dotenv').config();
 console.log("Current Cloud Name:", process.env.CLOUDINARY_CLOUD_NAME);
-const express = require('express');
-const cloudinaryConfig = require('./config/cloudinary'); 
+const express = require('express'); 
 const mongoose = require('mongoose');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
@@ -23,7 +22,6 @@ try {
 }
 
 dotenv.config();
-cloudinaryConfig();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
