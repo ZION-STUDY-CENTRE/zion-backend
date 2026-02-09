@@ -1,4 +1,7 @@
+require('dotenv').config();
+console.log("Current Cloud Name:", process.env.CLOUDINARY_CLOUD_NAME);
 const express = require('express');
+const cloudinaryConfig = require('./config/cloudinary'); 
 const mongoose = require('mongoose');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
@@ -20,6 +23,7 @@ try {
 }
 
 dotenv.config();
+cloudinaryConfig();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -37,6 +41,7 @@ const allowedOrigins = [
   'http://localhost:19006',
   'http://localhost:19007',
   'https://zionstudycentrewebsiteui.vercel.app',
+  'https://zionstudycentre.com.ng',
   ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : [])
 ];
 
