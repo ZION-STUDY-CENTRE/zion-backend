@@ -1,5 +1,5 @@
 require('dotenv').config();
-console.log("Current Cloud Name:", process.env.CLOUDINARY_CLOUD_NAME);
+console.log("Cloud Name:", process.env.CLOUDINARY_CLOUD_NAME);
 const express = require('express'); 
 const mongoose = require('mongoose');
 const cors = require('cors');
