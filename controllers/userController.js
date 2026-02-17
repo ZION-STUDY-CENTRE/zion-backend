@@ -146,6 +146,7 @@ exports.reactivateUser = async (req, res) => {
 
         user.enrollmentDate = Date.now(); // Reset enrollment to Now
         user.programDuration = durationMonths || 3; // Set new duration
+        user.isActive = true; // Ensure account is active
 
         await user.save();
         res.json(user);
