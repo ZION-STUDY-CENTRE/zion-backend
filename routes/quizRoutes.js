@@ -7,6 +7,7 @@ const authMiddleware = require('../middleware/authMiddleware');
 const roleMiddleware = require('../middleware/roleMiddleware');
 const { createNotification } = require('../controllers/notificationController');
 const { getIO } = require('../config/ioInstance');
+const { sendPushNotifications } = require('../utils/notificationService');
 
 // Get all quizzes for a program
 router.get('/program/:programId', authMiddleware, async(req, res) => {
@@ -113,6 +114,19 @@ router.post('/', authMiddleware, roleMiddleware('instructor', 'admin'), async(re
                     dueDate: dueDate
                 });
             });
+        }
+
+        // Send Push Notifications
+        const pushTokens = students
+            .filter(student => student.expoPushToken)
+            .map(student => student.expoPushToken);
+
+        if (pushTokens.length > 0) {
+            sendPushNotifications(
+                pushTokens,
+                "New Quiz",
+                `A new quiz "${title}" has been assigned.`
+            );
         }
 
         res.status(201).json(populated);

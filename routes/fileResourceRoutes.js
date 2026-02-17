@@ -6,6 +6,7 @@ const authMiddleware = require('../middleware/authMiddleware');
 const roleMiddleware = require('../middleware/roleMiddleware');
 const { createNotification } = require('../controllers/notificationController');
 const { getIO } = require('../config/ioInstance');
+const { sendPushNotifications } = require('../utils/notificationService');
 
 // Get all files for a program
 router.get('/program/:programId', authMiddleware, async(req, res) => {
@@ -114,6 +115,19 @@ router.post('/', authMiddleware, async(req, res) => {
                     resourceType: resourceType || 'study-material'
                 });
             });
+        }
+
+        // Send Push Notifications
+        const pushTokens = notificationRecipients
+            .filter(student => student.expoPushToken)
+            .map(student => student.expoPushToken);
+
+        if (pushTokens.length > 0) {
+            sendPushNotifications(
+                pushTokens,
+                "New Material",
+                `${uploader.name} uploaded new study material: ${title}`
+            );
         }
 
         res.status(201).json(populated);

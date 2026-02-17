@@ -4,373 +4,394 @@ const User = require('../models/User');
 const Notification = require('../models/Notification');
 const { getIO } = require('../config/ioInstance');
 const { createNotification } = require('./notificationController');
+const { sendPushNotifications } = require('../utils/notificationService');
 
 // Get all conversations for a user
-exports.getConversations = async (req, res) => {
-  try {
-    const userId = req.user?._id;
-    if (!userId) {
-      return res.status(400).json({ error: 'User not authenticated properly' });
+exports.getConversations = async(req, res) => {
+    try {
+        const userId = `${req.user?._id}`;
+        if (!userId) {
+            return res.status(400).json({ error: 'User not authenticated properly' });
+        }
+
+        const conversations = await Conversation.find({ participants: userId })
+            .populate('participants', '_id name email role')
+            .populate('lastMessage')
+            .sort({ lastMessageAt: -1 })
+            .lean();
+
+        // Trim participant names to remove extra whitespace
+        const cleanedConversations = conversations.map(conv => ({
+            ...conv,
+            participants: conv.participants.map(p => ({
+                ...p,
+                name: p.name ? p.name.trim() : p.name
+            }))
+        }));
+
+        res.json(cleanedConversations);
+    } catch (error) {
+        console.error('Error in getConversations:', error);
+        res.status(500).json({ error: error.message });
     }
-    
-    const conversations = await Conversation.find({ participants: userId })
-      .populate('participants', '_id name email role')
-      .populate('lastMessage')
-      .sort({ lastMessageAt: -1 })
-      .lean();
-
-    // Trim participant names to remove extra whitespace
-    const cleanedConversations = conversations.map(conv => ({
-      ...conv,
-      participants: conv.participants.map(p => ({
-        ...p,
-        name: p.name ? p.name.trim() : p.name
-      }))
-    }));
-
-    res.json(cleanedConversations);
-  } catch (error) {
-    console.error('Error in getConversations:', error);
-    res.status(500).json({ error: error.message });
-  }
 };
 
 // Get messages for a specific conversation
-exports.getMessages = async (req, res) => {
-  try {
-    const { conversationId } = req.params;
-    const userId = req.user?._id;
-    if (!userId) {
-      return res.status(400).json({ error: 'User not authenticated properly' });
-    }
-
-    // Verify user is participant
-    const conversation = await Conversation.findById(conversationId);
-    if (!conversation) {
-      return res.status(404).json({ error: 'Conversation not found' });
-    }
-    
-    // Check if user is a participant (handle both ObjectId and string comparisons)
-    const userIdString = userId.toString();
-    const isParticipant = conversation.participants.some(p => p.toString() === userIdString);
-    if (!isParticipant) {
-      return res.status(403).json({ error: 'Access denied' });
-    }
-
-    const messages = await Message.find({ conversationId })
-      .populate('sender', 'name email')
-      .sort({ createdAt: 1 })
-      .lean();
-
-    // Mark as read (optional - only if readBy exists)
+exports.getMessages = async(req, res) => {
     try {
-      await Conversation.findByIdAndUpdate(conversationId, {
-        $set: { 'readBy.$[elem].readAt': new Date() }
-      }, {
-        arrayFilters: [{ 'elem.user': userId }],
-        new: true
-      });
-    } catch (readError) {
-      console.warn('Warning marking message as read:', readError);
-    }
+        const { conversationId } = req.params;
+        const userId = `${req.user?._id}`;
+        if (!userId) {
+            return res.status(400).json({ error: 'User not authenticated properly' });
+        }
 
-    res.json(messages);
-  } catch (error) {
-    console.error('Error in getMessages:', error);
-    res.status(500).json({ error: error.message });
-  }
+        // Verify user is participant
+        const conversation = await Conversation.findById(conversationId);
+        if (!conversation) {
+            return res.status(404).json({ error: 'Conversation not found' });
+        }
+
+        // Check if user is a participant (handle both ObjectId and string comparisons)
+        const userIdString = userId.toString();
+        const isParticipant = conversation.participants.some(p => p.toString() === userIdString);
+        if (!isParticipant) {
+            return res.status(403).json({ error: 'Access denied' });
+        }
+
+        const messages = await Message.find({ conversationId })
+            .populate('sender', 'name email')
+            .sort({ createdAt: 1 })
+            .lean();
+
+        // Mark as read (optional - only if readBy exists)
+        try {
+            await Conversation.findByIdAndUpdate(conversationId, {
+                $set: { 'readBy.$[elem].readAt': new Date() }
+            }, {
+                arrayFilters: [{ 'elem.user': userId }],
+                new: true
+            });
+        } catch (readError) {
+            console.warn('Warning marking message as read:', readError);
+        }
+
+        res.json(messages);
+    } catch (error) {
+        console.error('Error in getMessages:', error);
+        res.status(500).json({ error: error.message });
+    }
 };
 
 // Create a new message
-exports.createMessage = async (req, res) => {
-  try {
-    const { conversationId, text, fileUrl, fileName } = req.body;
-    const userId = req.user?._id;
-    if (!userId) {
-      return res.status(400).json({ error: 'User not authenticated properly' });
-    }
+exports.createMessage = async(req, res) => {
+    try {
+        const { conversationId, text, fileUrl, fileName } = req.body;
+        const userId = `${req.user?._id}`;
+        if (!userId) {
+            return res.status(400).json({ error: 'User not authenticated properly' });
+        }
 
-    // Verify user is participant
-    const conversation = await Conversation.findById(conversationId);
-    if (!conversation) {
-      return res.status(404).json({ error: 'Conversation not found' });
-    }
-    
-    // Check if user is a participant (handle both ObjectId and string comparisons)
-    const userIdString = userId.toString();
-    const isParticipant = conversation.participants.some(p => p.toString() === userIdString);
-    if (!isParticipant) {
-      return res.status(403).json({ error: 'Access denied' });
-    }
+        // Verify user is participant
+        const conversation = await Conversation.findById(conversationId);
+        if (!conversation) {
+            return res.status(404).json({ error: 'Conversation not found' });
+        }
 
-    const message = await Message.create({
-      conversationId,
-      sender: userId,
-      text,
-      fileUrl,
-      fileName
-    });
+        // Check if user is a participant (handle both ObjectId and string comparisons)
+        const userIdString = userId.toString();
+        const isParticipant = conversation.participants.some(p => p.toString() === userIdString);
+        if (!isParticipant) {
+            return res.status(403).json({ error: 'Access denied' });
+        }
 
-    await message.populate('sender', 'name email');
+        const message = await Message.create({
+            conversationId,
+            sender: userId,
+            text,
+            fileUrl,
+            fileName
+        });
 
-    // Update conversation's last message
-    await Conversation.findByIdAndUpdate(conversationId, {
-      lastMessage: message._id,
-      lastMessageAt: new Date()
-    });
+        await message.populate('sender', 'name email');
 
-    // Create database notifications for other participants
-    for (const participantId of conversation.participants) {
-      const participantIdStr = participantId.toString();
-      const senderIdStr = userId.toString();
-      
-      if (participantIdStr !== senderIdStr) {
-        await createNotification(
-          participantId,
-          'message',
-          `Message from ${message.sender.name}`,
-          message.text || 'File shared',
-          {},
-          userId,
-          message._id,
-          'Message'
-        );
-      }
-    }
+        // Update conversation's last message
+        await Conversation.findByIdAndUpdate(conversationId, {
+            lastMessage: message._id,
+            lastMessageAt: new Date()
+        });
 
-    // Emit notification to other participants via Socket.io
-    const io = getIO();
-    console.log('🔍 Attempting to send notifications...');
-    console.log(`   - IO instance available: ${!!io}`);
-    console.log(`   - Message ID: ${message._id}`);
-    console.log(`   - Conversation ID: ${conversationId}`);
-    console.log(`   - Participants: ${conversation.participants.map(p => p.toString()).join(', ')}`);
-    console.log(`   - Sender ID: ${userIdString}`);
-    
-    if (io) {
-      conversation.participants.forEach(participantId => {
-        const participantIdStr = participantId.toString();
-        const senderIdStr = userId.toString();
-        
-        // Send notification to all participants except sender
-        if (participantIdStr !== senderIdStr) {
-          console.log(`📢 Emitting to user:${participantIdStr}`);
-          console.log(`   - Event: notification:message-sent`);
-          console.log(`   - Data: ${JSON.stringify({
+        // Create database notifications for other participants
+        const recipientIds = [];
+        for (const participantId of conversation.participants) {
+            const participantIdStr = participantId.toString();
+            const senderIdStr = userId.toString();
+
+            if (participantIdStr !== senderIdStr) {
+                recipientIds.push(participantId);
+                await createNotification(
+                    participantId,
+                    'message',
+                    `Message from ${message.sender.name}`,
+                    message.text || 'File shared', {},
+                    userId,
+                    message._id,
+                    'Message'
+                );
+            }
+        }
+
+        // Send Push Notifications
+        try {
+            const recipients = await User.find({
+                _id: { $in: recipientIds },
+                expoPushToken: { $ne: null }
+            });
+
+            const pushTokens = recipients.map(u => u.expoPushToken);
+            if (pushTokens.length > 0) {
+                await sendPushNotifications(
+                    pushTokens,
+                    `New Message from ${message.sender.name}`,
+                    message.text ? message.text.substring(0, 50) + (message.text.length > 50 ? '...' : '') : 'Sent a file'
+                );
+            }
+        } catch (pushError) {
+            console.error("Failed to send push notifications:", pushError);
+        }
+
+        // Emit notification to other participants via Socket.io
+        const io = getIO();
+        console.log('🔍 Attempting to send notifications...');
+        console.log(`   - IO instance available: ${!!io}`);
+        console.log(`   - Message ID: ${message._id}`);
+        console.log(`   - Conversation ID: ${conversationId}`);
+        console.log(`   - Participants: ${conversation.participants.map(p => p.toString()).join(', ')}`);
+        console.log(`   - Sender ID: ${userIdString}`);
+
+        if (io) {
+            conversation.participants.forEach(participantId => {
+                const participantIdStr = participantId.toString();
+                const senderIdStr = userId.toString();
+
+                // Send notification to all participants except sender
+                if (participantIdStr !== senderIdStr) {
+                    console.log(`📢 Emitting to user:${participantIdStr}`);
+                    console.log(`   - Event: notification:message-sent`);
+                    console.log(`   - Data: ${JSON.stringify({
             conversationId,
             senderId: senderIdStr,
             senderName: message.sender.name,
             message: message.text || 'File shared'
           })}`);
-          
-          io.to(`user:${participantIdStr}`).emit('notification:message-sent', {
-            conversationId,
-            senderId: senderIdStr,
-            senderName: message.sender.name,
-            message: message.text || 'File shared',
-            messageId: message._id,
-            timestamp: new Date()
-          });
-        }
-      });
-    } else {
-      console.error('❌ Socket.io instance is NULL!');
-    }
 
-    res.json(message);
-  } catch (error) {
-    console.error('Error in createMessage:', error);
-    res.status(500).json({ error: error.message });
-  }
+                    io.to(`user:${participantIdStr}`).emit('notification:message-sent', {
+                        conversationId,
+                        senderId: senderIdStr,
+                        senderName: message.sender.name,
+                        message: message.text || 'File shared',
+                        messageId: message._id,
+                        timestamp: new Date()
+                    });
+                }
+            });
+        } else {
+            console.error('❌ Socket.io instance is NULL!');
+        }
+
+        res.json(message);
+    } catch (error) {
+        console.error('Error in createMessage:', error);
+        res.status(500).json({ error: error.message });
+    }
 };
 
 // Create or get 1-to-1 conversation
-exports.getOrCreateConversation = async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const currentUserId = req.user?._id;
+exports.getOrCreateConversation = async(req, res) => {
+    try {
+        const { userId } = req.params;
+        const currentUserId = `${req.user?._id}`;
 
-    console.log('[DEBUG] Received request - currentUserId:', currentUserId, 'userId:', userId);
+        console.log('[DEBUG] Received request - currentUserId:', currentUserId, 'userId:', userId);
 
-    // Check if currentUserId exists
-    if (!currentUserId) {
-      console.error('[ERROR] currentUserId is undefined. req.user:', req.user);
-      return res.status(400).json({ error: 'User not authenticated properly' });
-    }
+        // Check if currentUserId exists
+        if (!currentUserId) {
+            console.error('[ERROR] currentUserId is undefined. req.user:', req.user);
+            return res.status(400).json({ error: 'User not authenticated properly' });
+        }
 
-    // Validate ObjectId format
-    const mongoose = require('mongoose');
-    if (!mongoose.Types.ObjectId.isValid(userId)) {
-      return res.status(400).json({ error: 'Invalid user ID format' });
-    }
+        // Validate ObjectId format
+        const mongoose = require('mongoose');
+        if (!mongoose.Types.ObjectId.isValid(userId)) {
+            return res.status(400).json({ error: 'Invalid user ID format' });
+        }
 
-    // Convert both to strings for comparison
-    if (currentUserId.toString() === userId.toString()) {
-      return res.status(400).json({ error: 'Cannot chat with yourself' });
-    }
+        // Convert both to strings for comparison
+        if (currentUserId.toString() === userId.toString()) {
+            return res.status(400).json({ error: 'Cannot chat with yourself' });
+        }
 
-    // Verify the other user exists
-    const otherUser = await User.findById(userId);
-    if (!otherUser) {
-      return res.status(404).json({ error: 'User not found' });
-    }
+        // Verify the other user exists
+        const otherUser = await User.findById(userId);
+        if (!otherUser) {
+            return res.status(404).json({ error: 'User not found' });
+        }
 
-    // If current user is instructor, verify they can only chat with students in their program
-    const currentUser = await User.findById(currentUserId);
-    if (currentUser?.role === 'instructor') {
-      if (otherUser.role !== 'student' || otherUser.program?.toString() !== currentUser.program?.toString()) {
-        return res.status(403).json({ error: 'You can only chat with students in your program' });
-      }
-    }
+        // If current user is instructor, verify they can only chat with students in their program
+        const currentUser = await User.findById(currentUserId);
+        if (`${currentUser?.role}` === 'instructor') {
+            if (otherUser.role !== 'student' || `${otherUser.program?.toString()}` !== `${currentUser.program?.toString()}`) {
+                return res.status(403).json({ error: 'You can only chat with students in your program' });
+            }
+        }
 
-    // Find or create conversation
-    let conversation = await Conversation.findOne({
-      isGroup: false,
-      participants: { $all: [currentUserId, userId] }
-    }).populate('participants', '_id name email role');
+        // Find or create conversation
+        let conversation = await Conversation.findOne({
+            isGroup: false,
+            participants: { $all: [currentUserId, userId] }
+        }).populate('participants', '_id name email role');
 
-    if (!conversation) {
-      conversation = new Conversation({
-        isGroup: false,
-        participants: [currentUserId, userId],
-        createdBy: currentUserId
-      });
-      await conversation.save();
-      await conversation.populate('participants', '_id name email role');
-    }
+        if (!conversation) {
+            conversation = new Conversation({
+                isGroup: false,
+                participants: [currentUserId, userId],
+                createdBy: currentUserId
+            });
+            await conversation.save();
+            await conversation.populate('participants', '_id name email role');
+        }
 
-    // Trim participant names and ensure _id is included
-    const conversationObj = conversation.toObject ? conversation.toObject() : conversation;
-    const cleanedConversation = {
-      ...conversationObj,
-      participants: conversation.participants.map(p => {
-        const participant = p.toObject ? p.toObject() : p;
-        return {
-          _id: participant._id,
-          name: p.name ? p.name.trim() : p.name,
-          email: participant.email,
-          role: participant.role
+        // Trim participant names and ensure _id is included
+        const conversationObj = conversation.toObject ? conversation.toObject() : conversation;
+        const cleanedConversation = {
+            ...conversationObj,
+            participants: conversation.participants.map(p => {
+                const participant = p.toObject ? p.toObject() : p;
+                return {
+                    _id: participant._id,
+                    name: p.name ? p.name.trim() : p.name,
+                    email: participant.email,
+                    role: participant.role
+                };
+            })
         };
-      })
-    };
 
-    console.log('[DEBUG] getOrCreateConversation response:', JSON.stringify(cleanedConversation, null, 2));
-    res.json(cleanedConversation);
-  } catch (error) {
-    console.error('[ERROR] getOrCreateConversation:', error.message);
-    console.error('[ERROR] Stack:', error.stack);
-    res.status(500).json({ error: error.message });
-  }
+        console.log('[DEBUG] getOrCreateConversation response:', JSON.stringify(cleanedConversation, null, 2));
+        res.json(cleanedConversation);
+    } catch (error) {
+        console.error('[ERROR] getOrCreateConversation:', error.message);
+        console.error('[ERROR] Stack:', error.stack);
+        res.status(500).json({ error: error.message });
+    }
 };
 
 // Create group conversation
-exports.createGroupConversation = async (req, res) => {
-  try {
-    const { name, participantIds } = req.body;
-    const userId = req.user?._id;
-    if (!userId) {
-      return res.status(400).json({ error: 'User not authenticated properly' });
+exports.createGroupConversation = async(req, res) => {
+    try {
+        const { name, participantIds } = req.body;
+        const userId = `${req.user?._id}`;
+        if (!userId) {
+            return res.status(400).json({ error: 'User not authenticated properly' });
+        }
+
+        if (!name || !participantIds || participantIds.length < 2) {
+            return res.status(400).json({ error: 'Invalid group data' });
+        }
+
+        const allParticipants = [...new Set([userId.toString(), ...participantIds])];
+
+        const conversation = await Conversation.create({
+            name,
+            isGroup: true,
+            participants: allParticipants,
+            createdBy: userId,
+            readBy: allParticipants.map(p => ({ user: p }))
+        });
+
+        await conversation.populate('participants', 'name email');
+
+        res.json(conversation);
+    } catch (error) {
+        console.error('Error in createGroupConversation:', error);
+        res.status(500).json({ error: error.message });
     }
-
-    if (!name || !participantIds || participantIds.length < 2) {
-      return res.status(400).json({ error: 'Invalid group data' });
-    }
-
-    const allParticipants = [...new Set([userId.toString(), ...participantIds])];
-
-    const conversation = await Conversation.create({
-      name,
-      isGroup: true,
-      participants: allParticipants,
-      createdBy: userId,
-      readBy: allParticipants.map(p => ({ user: p }))
-    });
-
-    await conversation.populate('participants', 'name email');
-
-    res.json(conversation);
-  } catch (error) {
-    console.error('Error in createGroupConversation:', error);
-    res.status(500).json({ error: error.message });
-  }
 };
 
 // Get all users for chat selection
-exports.getAllUsers = async (req, res) => {
-  try {
-    const userId = req.user?._id;
-    const userRole = req.user?.role;
-    
-    console.log(`[Chat Users] Fetching for user ${userId} with role ${userRole}`);
-    
-    if (!userId) {
-      return res.status(400).json({ error: 'User not authenticated properly' });
-    }
-    
-    let query = { _id: { $ne: userId } };
-    
-    // If user is an instructor, only show their students
-    if (userRole === 'instructor') {
-      const instructor = await User.findById(userId).select('program name');
-      console.log(`[Chat Users] Instructor data:`, {
-        id: userId,
-        name: instructor?.name,
-        program: instructor?.program,
-        hasProgram: !!instructor?.program
-      });
-      
-      if (!instructor?.program) {
-        // Instructor has no program assigned, show diagnostic info
-        console.log(`[Chat Users] ⚠️ Instructor ${instructor?.name} has no program assigned`);
-        console.log(`[Chat Users] Available programs:`);
-        
-        const programs = await User.find({ role: 'student' })
-          .distinct('program');
-        
-        console.log(`[Chat Users] Programs with students: ${programs.length}`);
-        programs.forEach(p => console.log(`  - ${p}`));
-        
-        return res.json([]);
-      }
-      
-      query = {
-        _id: { $ne: userId },
-        program: instructor.program,
-        role: 'student'
-      };
-      
-      console.log(`[Chat Users] Query for instructor: program=${instructor.program}, role=student`);
-    } else if (userRole === 'student') {
-      // Students can chat with their instructors and other students in same program
-      const student = await User.findById(userId).select('program name');
-      console.log(`[Chat Users] Student ${student?.name} program:`, student?.program);
-      
-      if (student?.program) {
-        query = {
-          $or: [
-            { program: student.program, role: { $in: ['student', 'instructor'] } },
-            { role: 'admin' }
-          ],
-          _id: { $ne: userId }
-        };
-        console.log(`[Chat Users] Query for student: showing instructors and students in program`);
-      }
-    }
-    // Admin and media-manager can see everyone
-    
-    const users = await User.find(query)
-      .select('_id name email role program')
-      .lean();
+exports.getAllUsers = async(req, res) => {
+        try {
+            const userId = `${req.user?._id}`;
+            const userRole = `${req.user?.role}`;
 
-    // Trim names to remove extra whitespace
-    const cleanedUsers = users.map(u => ({
-      ...u,
-      name: u.name ? u.name.trim() : u.name
-    }));
+            console.log(`[Chat Users] Fetching for user ${userId} with role ${userRole}`);
 
-    console.log(`[Chat Users] Found ${cleanedUsers.length} users`);
-    if (cleanedUsers.length > 0) {
-      console.log(`[Chat Users] Users: ${cleanedUsers.map(u => `${u.name} (${u.role})`).join(', ')}`);
+            if (!userId) {
+                return res.status(400).json({ error: 'User not authenticated properly' });
+            }
+
+            let query = { _id: { $ne: userId } };
+
+            // If user is an instructor, only show their students
+            if (userRole === 'instructor') {
+                const instructor = await User.findById(userId).select('program name');
+                console.log(`[Chat Users] Instructor data:`, {
+                    id: userId,
+                    name: `${instructor?.name}`,
+                    program: `${instructor?.program}`,
+                    hasProgram: !!`${instructor?.program}`
+                });
+
+                if (!`${instructor?.program}`) {
+                    // Instructor has no program assigned, show diagnostic info
+                    console.log(`[Chat Users] ⚠️ Instructor ${instructor?.name} has no program assigned`);
+                    console.log(`[Chat Users] Available programs:`);
+
+                    const programs = await User.find({ role: 'student' })
+                        .distinct('program');
+
+                    console.log(`[Chat Users] Programs with students: ${programs.length}`);
+                    programs.forEach(p => console.log(`  - ${p}`));
+
+                    return res.json([]);
+                }
+
+                query = {
+                    _id: { $ne: userId },
+                    program: instructor.program,
+                    role: 'student'
+                };
+
+                console.log(`[Chat Users] Query for instructor: program=${instructor.program}, role=student`);
+            } else if (userRole === 'student') {
+                // Students can chat with their instructors and other students in same program
+                const student = await User.findById(userId).select('program name');
+                console.log(`[Chat Users] Student ${student?.name} program:`, `${student?.program}`);
+
+                if (`${student?.program}`) {
+                    query = {
+                        $or: [
+                            { program: student.program, role: { $in: ['student', 'instructor'] } },
+                            { role: 'admin' }
+                        ],
+                        _id: { $ne: userId }
+                    };
+                    console.log(`[Chat Users] Query for student: showing instructors and students in program`);
+                }
+            }
+            // Admin and media-manager can see everyone
+
+            const users = await User.find(query)
+                .select('_id name email role program')
+                .lean();
+
+            // Trim names to remove extra whitespace
+            const cleanedUsers = users.map(u => ({
+                ...u,
+                name: u.name ? u.name.trim() : u.name
+            }));
+
+            console.log(`[Chat Users] Found ${cleanedUsers.length} users`);
+            if (cleanedUsers.length > 0) {
+                console.log(`[Chat Users] Users: ${cleanedUsers.map(u => `${u.name} (${u.role})`).join(', ')}`);
     }
     
     res.json(cleanedUsers);

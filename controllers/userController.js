@@ -4,55 +4,55 @@ const bcrypt = require('bcryptjs');
 // @desc    Get students for a specific program
 // @route   GET /api/users/program/:programId
 // @access  Private (Admin, Instructor)
-exports.getStudentsByProgram = async (req, res) => {
-  try {
-    const students = await User.find({ 
-      role: 'student', 
-      program: req.params.programId 
-    }).select('-password'); // Exclude password from result
-    res.json(students);
-  } catch (err) {
-    console.error(err.message);
-    res.status(500).send('Server error');
-  }
+exports.getStudentsByProgram = async(req, res) => {
+    try {
+        const students = await User.find({
+            role: 'student',
+            program: req.params.programId
+        }).select('-password'); // Exclude password from result
+        res.json(students);
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send('Server error');
+    }
 };
 
 // @desc    Assign a program to an instructor
 // @route   PUT /api/users/assign-program/:instructorId
 // @access  Private (Admin)
-exports.assignProgramToInstructor = async (req, res) => {
-  try {
-    const { programId } = req.body;
-    const { instructorId } = req.params;
+exports.assignProgramToInstructor = async(req, res) => {
+    try {
+        const { programId } = req.body;
+        const { instructorId } = req.params;
 
-    if (!programId) {
-      return res.status(400).json({ msg: 'Program ID is required' });
+        if (!programId) {
+            return res.status(400).json({ msg: 'Program ID is required' });
+        }
+
+        const instructor = await User.findById(instructorId);
+        if (!instructor) {
+            return res.status(404).json({ msg: 'Instructor not found' });
+        }
+
+        if (instructor.role !== 'instructor') {
+            return res.status(400).json({ msg: 'User is not an instructor' });
+        }
+
+        instructor.program = programId;
+        await instructor.save();
+
+        console.log(`✅ Assigned instructor ${instructor.name} to program ${programId}`);
+        res.json({ msg: 'Program assigned successfully', instructor });
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send('Server error');
     }
-
-    const instructor = await User.findById(instructorId);
-    if (!instructor) {
-      return res.status(404).json({ msg: 'Instructor not found' });
-    }
-
-    if (instructor.role !== 'instructor') {
-      return res.status(400).json({ msg: 'User is not an instructor' });
-    }
-
-    instructor.program = programId;
-    await instructor.save();
-
-    console.log(`✅ Assigned instructor ${instructor.name} to program ${programId}`);
-    res.json({ msg: 'Program assigned successfully', instructor });
-  } catch (err) {
-    console.error(err.message);
-    res.status(500).send('Server error');
-  }
 };
 
 // @desc    Get all instructors
 // @route   GET /api/users/instructors
 // @access  Private (Admin)
-exports.getInstructors = async (req, res) => {
+exports.getInstructors = async(req, res) => {
     try {
         const instructors = await User.find({ role: 'instructor' }).select('-password');
         res.json(instructors);
@@ -65,7 +65,7 @@ exports.getInstructors = async (req, res) => {
 // @desc    Get all users
 // @route   GET /api/users
 // @access  Private (Admin)
-exports.getAllUsers = async (req, res) => {
+exports.getAllUsers = async(req, res) => {
     try {
         const users = await User.find().select('-password').sort({ date: -1 }).populate('program', 'title');
         res.json(users);
@@ -78,7 +78,7 @@ exports.getAllUsers = async (req, res) => {
 // @desc    Update user details (Admin)
 // @route   PUT /api/users/:id
 // @access  Private (Admin)
-exports.updateUser = async (req, res) => {
+exports.updateUser = async(req, res) => {
     const { name, email, password } = req.body;
     try {
         let user = await User.findById(req.params.id);
@@ -106,7 +106,7 @@ exports.updateUser = async (req, res) => {
 // @desc    Change own password
 // @route   PUT /api/users/change-password
 // @access  Private (All Users)
-exports.changeOwnPassword = async (req, res) => {
+exports.changeOwnPassword = async(req, res) => {
     const { currentPassword, newPassword } = req.body;
     try {
         const user = await User.findById(req.user.id);
@@ -135,7 +135,7 @@ exports.changeOwnPassword = async (req, res) => {
 // @desc    Reactivate a student account
 // @route   PUT /api/users/:id/reactivate
 // @access  Private (Admin)
-exports.reactivateUser = async (req, res) => {
+exports.reactivateUser = async(req, res) => {
     const { durationMonths } = req.body;
     try {
         let user = await User.findById(req.params.id);
@@ -159,7 +159,7 @@ exports.reactivateUser = async (req, res) => {
 // @desc    Delete a user
 // @route   DELETE /api/users/:id
 // @access  Private (Admin)
-exports.deleteUser = async (req, res) => {
+exports.deleteUser = async(req, res) => {
     try {
         const user = await User.findById(req.params.id);
 
@@ -179,3 +179,24 @@ exports.deleteUser = async (req, res) => {
     }
 };
 
+// @desc    Update Expo Push Token
+// @route   PUT /api/users/push-token
+// @access  Private (All Users)
+exports.updatePushToken = async(req, res) => {
+    const { token } = req.body;
+    try {
+        const user = await User.findById(req.user.id);
+        if (!user) {
+            return res.status(404).json({ msg: 'User not found' });
+        }
+
+        user.expoPushToken = token;
+        await user.save();
+
+        console.log(`Saved push token for ${user.email}`);
+        res.json({ msg: 'Push token updated' });
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send('Server error');
+    }
+};
