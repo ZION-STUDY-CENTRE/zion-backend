@@ -59,6 +59,9 @@ router.get('/:id', authMiddleware, async(req, res) => {
 router.post('/', authMiddleware, async(req, res) => {
     const { title, description, program, fileUrl, fileName, fileType, fileSize, resourceType, visibility, accessibleTo } = req.body;
 
+    // Default visibility to public if not provided
+    const visibilitySetting = visibility || 'public';
+
     try {
         // Get the full user object to access name
         const uploader = await User.findById(req.user.id);
@@ -73,18 +76,18 @@ router.post('/', authMiddleware, async(req, res) => {
             fileType,
             fileSize,
             resourceType: resourceType || 'study-material',
-            visibility: visibility || 'public',
-            accessibleTo: visibility === 'specific-students' ? accessibleTo : []
+            visibility: visibilitySetting,
+            accessibleTo: visibilitySetting === 'specific-students' ? accessibleTo : []
         });
 
         const saved = await fileResource.save();
         const populated = await saved.populate('uploadedBy', 'name email');
 
-        // Get all students enrolled in this program if visibility is public
+        // Get all students enrolled in this program if visibility is public or private (assuming class-wide)
         let notificationRecipients = [];
-        if (visibility === 'public' || visibility === 'private') {
+        if (visibilitySetting === 'public' || visibilitySetting === 'private') {
             notificationRecipients = await User.find({ program: program, role: 'student' });
-        } else if (visibility === 'specific-students' && accessibleTo.length > 0) {
+        } else if (visibilitySetting === 'specific-students' && accessibleTo && accessibleTo.length > 0) {
             notificationRecipients = await User.find({ _id: { $in: accessibleTo }, role: 'student' });
         }
 

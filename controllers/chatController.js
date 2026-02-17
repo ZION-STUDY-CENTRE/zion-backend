@@ -152,7 +152,7 @@ exports.createMessage = async(req, res) => {
                 await sendPushNotifications(
                     pushTokens,
                     `New Message from ${message.sender.name}`,
-                    message.text ? message.text.substring(0, 50) + (message.text.length > 50 ? '...' : '') : 'Sent a file'
+                    message.text ? message.text.substring(0, 50) + (message.text.length > 50 ? '...' : '') : 'Sent a file', { conversationId: conversationId }
                 );
             }
         } catch (pushError) {

@@ -11,11 +11,12 @@ let expo = new Expo();
  * @param {Object} data - Optional data payload
  */
 const sendPushNotifications = async(pushTokens, title, body, data = {}) => {
+    console.log(`[Notification Service] Attempting to send ${pushTokens.length} notifications: "${title}"`);
     let messages = [];
 
     for (let pushToken of pushTokens) {
         if (!Expo.isExpoPushToken(pushToken)) {
-            console.error(`Push token ${pushToken} is not a valid Expo push token`);
+            console.error(`[Notification Service] Push token ${pushToken} is not a valid Expo push token`);
             continue;
         }
 
@@ -26,6 +27,11 @@ const sendPushNotifications = async(pushTokens, title, body, data = {}) => {
             body: body,
             data: data,
         });
+    }
+
+    if (messages.length === 0) {
+        console.log(`[Notification Service] No valid tokens to send to.`);
+        return;
     }
 
     // Batch the messages
