@@ -13,10 +13,12 @@ let expo = new Expo();
 const sendPushNotifications = async(pushTokens, title, body, data = {}) => {
     console.log(`[Notification Service] Attempting to send ${pushTokens.length} notifications: "${title}"`);
     let messages = [];
+    let invalidTokens = [];
 
     for (let pushToken of pushTokens) {
         if (!Expo.isExpoPushToken(pushToken)) {
             console.error(`[Notification Service] Push token ${pushToken} is not a valid Expo push token`);
+            invalidTokens.push(pushToken);
             continue;
         }
 
@@ -26,12 +28,18 @@ const sendPushNotifications = async(pushTokens, title, body, data = {}) => {
             title: title,
             body: body,
             data: data,
+            channelId: 'default',
+            priority: 'high',
         });
     }
 
     if (messages.length === 0) {
         console.log(`[Notification Service] No valid tokens to send to.`);
-        return;
+        return {
+            sent: 0,
+            tickets: [],
+            invalidTokens,
+        };
     }
 
     // Batch the messages
@@ -42,6 +50,18 @@ const sendPushNotifications = async(pushTokens, title, body, data = {}) => {
         try {
             let ticketChunk = await expo.sendPushNotificationsAsync(chunk);
             console.log('Notification Tickets:', ticketChunk);
+
+            ticketChunk.forEach((ticket, index) => {
+                if (ticket.status !== 'ok') {
+                    console.error('[Notification Service] Ticket error', {
+                        token: `${chunk[index]?.to}`,
+                        status: ticket.status,
+                        details: ticket.details,
+                        message: ticket.message,
+                    });
+                }
+            });
+
             tickets.push(...ticketChunk);
         } catch (error) {
             console.error(error);
@@ -51,6 +71,12 @@ const sendPushNotifications = async(pushTokens, title, body, data = {}) => {
     // Handle receipts (optional, but good for debugging errors)
     // For now, we just log that we sent them.
     console.log(`Sent ${messages.length} notifications: ${title}`);
+
+    return {
+        sent: messages.length,
+        tickets,
+        invalidTokens,
+    };
 };
 
 module.exports = { sendPushNotifications };
