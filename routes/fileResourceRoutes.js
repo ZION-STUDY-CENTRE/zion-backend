@@ -4,9 +4,11 @@ const FileResource = require('../models/FileResource');
 const User = require('../models/User');
 const authMiddleware = require('../middleware/authMiddleware');
 const roleMiddleware = require('../middleware/roleMiddleware');
+
 const { createNotification } = require('../controllers/notificationController');
 const { getIO } = require('../config/ioInstance');
 const { sendPushNotifications } = require('../utils/notificationService');
+const { parser } = require('../config/cloudinary');
 
 // Get all files for a program
 router.get('/program/:programId', authMiddleware, async(req, res) => {
@@ -55,16 +57,32 @@ router.get('/:id', authMiddleware, async(req, res) => {
     }
 });
 
+
 // Upload file resource (any authenticated user can upload)
-router.post('/', authMiddleware, async(req, res) => {
-    const { title, description, program, fileUrl, fileName, fileType, fileSize, resourceType, visibility, accessibleTo } = req.body;
+router.post('/', authMiddleware, parser.single('file'), async (req, res) => {
+    // Accepts multipart/form-data with file, plus title, description, program, etc. as fields
+    const { title, description, program, resourceType, visibility, accessibleTo } = req.body;
 
     // Default visibility to public if not provided
     const visibilitySetting = visibility || 'public';
 
     try {
+        // Validate required fields
+        if (!title || !program) {
+            return res.status(400).json({ message: 'Title and program are required.' });
+        }
+        if (!req.file) {
+            return res.status(400).json({ message: 'File is required.' });
+        }
+
         // Get the full user object to access name
         const uploader = await User.findById(req.user.id);
+
+        // Extract file info from req.file (Cloudinary response)
+        const fileUrl = req.file.secure_url || req.file.url || req.file.path;
+        const fileName = req.file.originalname || req.file.filename || req.file.public_id;
+        const fileType = req.file.mimetype;
+        const fileSize = req.file.size;
 
         const fileResource = new FileResource({
             title,

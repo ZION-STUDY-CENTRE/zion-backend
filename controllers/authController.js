@@ -14,7 +14,7 @@ const generateAccessToken = (user) => {
             role: user.role
         }
     };
-    return jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '15m' }); // Short-lived
+    return jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1d' }); // 1 day
 };
 
 // Helper to generate Refresh Token (Opaque + DB)
@@ -39,7 +39,7 @@ const setTokenCookies = (res, accessToken, refreshToken) => {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
         sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', // Lax is better for staying logged in during navigation, but None required for cross-site
-        maxAge: 5 * 60 * 60 * 1000 // 15 hour
+        maxAge: 30 * 60 * 1000 // 30 minutes
     });
 
     // Refresh Token Cookie (Long lived)
