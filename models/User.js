@@ -24,6 +24,22 @@ const UserSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Program'
     },
+    // For students: support multiple programs
+    programs: [{
+        program: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'Program',
+            required: true
+        },
+        duration: {
+            type: Number, // In Months
+            default: 3
+        },
+        enrollmentDate: {
+            type: Date,
+            default: Date.now
+        }
+    }],
     // Student Specific Fields
     enrollmentDate: {
         type: Date,

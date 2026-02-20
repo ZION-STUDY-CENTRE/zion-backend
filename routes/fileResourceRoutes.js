@@ -11,24 +11,24 @@ const { sendPushNotifications } = require('../utils/notificationService');
 const { parser } = require('../config/cloudinary');
 
 // Get all files for a program
-router.get('/program/:programId', authMiddleware, async(req, res) => {
-    try {
-        const files = await FileResource.find({
-                program: req.params.programId,
-                $or: [
-                    { visibility: 'public' },
-                    { visibility: 'private', uploadedBy: req.user.id },
-                    { visibility: 'specific-students', accessibleTo: req.user.id }
-                ]
-            })
-            .populate('uploadedBy', 'name email')
-            .sort({ uploadedAt: -1 });
-
-        res.json(files);
-    } catch (error) {
-        res.status(500).json({ message: error.message });
-    }
-});
+// Only show files for programs the student is enrolled in
+let programMatch = { program: req.params.programId };
+if (req.user.role === 'student') {
+    programMatch = {
+        $or: [
+            { program: req.params.programId },
+            { 'programs.program': req.params.programId }
+        ]
+    };
+}
+const files = await FileResource.find({
+    ...programMatch,
+    $or: [
+        { visibility: 'public' },
+        { visibility: 'private', uploadedBy: req.user.id },
+        { visibility: 'specific-students', accessibleTo: req.user.id }
+    ]
+})
 
 // Get single file resource
 router.get('/:id', authMiddleware, async(req, res) => {
@@ -59,7 +59,7 @@ router.get('/:id', authMiddleware, async(req, res) => {
 
 
 // Upload file resource (any authenticated user can upload)
-router.post('/', authMiddleware, parser.single('file'), async (req, res) => {
+router.post('/', authMiddleware, parser.single('file'), async(req, res) => {
     // Accepts multipart/form-data with file, plus title, description, program, etc. as fields
     const { title, description, program, resourceType, visibility, accessibleTo } = req.body;
 
@@ -104,7 +104,13 @@ router.post('/', authMiddleware, parser.single('file'), async (req, res) => {
         // Get all students enrolled in this program if visibility is public or private (assuming class-wide)
         let notificationRecipients = [];
         if (visibilitySetting === 'public' || visibilitySetting === 'private') {
-            notificationRecipients = await User.find({ program: program, role: 'student' });
+            notificationRecipients = await User.find({
+                role: 'student',
+                $or: [
+                    { 'programs.program': program },
+                    { program: program } // fallback for legacy
+                ]
+            });
         } else if (visibilitySetting === 'specific-students' && accessibleTo && accessibleTo.length > 0) {
             notificationRecipients = await User.find({ _id: { $in: accessibleTo }, role: 'student' });
         }

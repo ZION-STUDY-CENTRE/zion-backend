@@ -12,7 +12,17 @@ const { sendPushNotifications } = require('../utils/notificationService');
 // Get all quizzes for a program
 router.get('/program/:programId', authMiddleware, async(req, res) => {
     try {
-        const quizzes = await Quiz.find({ program: req.params.programId })
+        // Only show quizzes for programs the student is enrolled in
+        let programMatch = { program: req.params.programId };
+        if (req.user.role === 'student') {
+            programMatch = {
+                $or: [
+                    { program: req.params.programId },
+                    { 'programs.program': req.params.programId }
+                ]
+            };
+        }
+        const quizzes = await Quiz.find(programMatch)
             .populate('createdBy', 'name email')
             .sort({ dueDate: -1 });
         res.json(quizzes);
@@ -86,7 +96,13 @@ router.post('/', authMiddleware, roleMiddleware('instructor', 'admin'), async(re
         const populated = await savedQuiz.populate('createdBy', 'name email');
 
         // Get all students enrolled in this program
-        const students = await User.find({ program: program, role: 'student' });
+        const students = await User.find({
+            role: 'student',
+            $or: [
+                { 'programs.program': program },
+                { program: program } // fallback for legacy
+            ]
+        });
         console.log(`[Quiz Notification] 📝 Created quiz "${title}" for ${students.length} students`);
 
         // Create notifications for all enrolled students

@@ -8,7 +8,10 @@ exports.getStudentsByProgram = async(req, res) => {
     try {
         const students = await User.find({
             role: 'student',
-            program: req.params.programId
+            $or: [
+                { 'programs.program': req.params.programId },
+                { program: req.params.programId } // fallback for legacy
+            ]
         }).select('-password'); // Exclude password from result
         res.json(students);
     } catch (err) {

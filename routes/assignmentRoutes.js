@@ -11,7 +11,17 @@ const { sendPushNotifications } = require('../utils/notificationService');
 // Get all assignments for a program
 router.get('/program/:programId', authMiddleware, async(req, res) => {
     try {
-        const assignments = await Assignment.find({ program: req.params.programId })
+        // Only show assignments for programs the student is enrolled in
+        let programMatch = { program: req.params.programId };
+        if (req.user.role === 'student') {
+            programMatch = {
+                $or: [
+                    { program: req.params.programId },
+                    { 'programs.program': req.params.programId }
+                ]
+            };
+        }
+        const assignments = await Assignment.find(programMatch)
             .populate('createdBy', 'name email')
             .sort({ dueDate: -1 });
         res.json(assignments);
@@ -57,7 +67,13 @@ router.post('/', authMiddleware, roleMiddleware('instructor', 'admin'), async(re
         const populated = await savedAssignment.populate('createdBy', 'name email');
 
         // Get all students enrolled in this program
-        const students = await User.find({ program: program, role: 'student' });
+        const students = await User.find({
+            role: 'student',
+            $or: [
+                { 'programs.program': program },
+                { program: program } // fallback for legacy
+            ]
+        });
         console.log(`[Assignment Notification] 📚 Created assignment "${title}" for ${students.length} students`);
 
         // Create notifications for all enrolled students
