@@ -14,17 +14,9 @@ const { parser } = require('../config/cloudinary');
 // Only show files for programs the student is enrolled in
 router.get('/program/:programId', authMiddleware, async(req, res) => {
     try {
-        let programMatch = { program: req.params.programId };
-        if (req.user.role === 'student') {
-            programMatch = {
-                $or: [
-                    { program: req.params.programId },
-                    { 'programs.program': req.params.programId }
-                ]
-            };
-        }
+        // Only match files for the selected program
         const files = await FileResource.find({
-            ...programMatch,
+            program: req.params.programId,
             $or: [
                 { visibility: 'public' },
                 { visibility: 'private', uploadedBy: req.user.id },
