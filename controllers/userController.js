@@ -70,7 +70,11 @@ exports.getInstructors = async(req, res) => {
 // @access  Private (Admin)
 exports.getAllUsers = async(req, res) => {
     try {
-        const users = await User.find().select('-password').sort({ date: -1 }).populate('program', 'title');
+        const users = await User.find()
+            .select('-password')
+            .sort({ date: -1 })
+            .populate('program', 'title')
+            .populate('programs.program', 'title');
         res.json(users);
     } catch (err) {
         console.error(err.message);
@@ -82,7 +86,7 @@ exports.getAllUsers = async(req, res) => {
 // @route   PUT /api/users/:id
 // @access  Private (Admin)
 exports.updateUser = async(req, res) => {
-    const { name, email, password } = req.body;
+    const { name, email, password, programs } = req.body;
     try {
         let user = await User.findById(req.params.id);
 
@@ -90,8 +94,18 @@ exports.updateUser = async(req, res) => {
             return res.status(404).json({ msg: 'User not found' });
         }
 
+
         user.name = name || user.name;
         user.email = email || user.email;
+
+        // If programs array is provided, update it
+        if (Array.isArray(programs)) {
+            user.programs = programs.map(p => ({
+                program: p.program,
+                duration: p.duration || 3,
+                enrollmentDate: p.enrollmentDate || Date.now()
+            }));
+        }
 
         if (password) {
             const salt = await bcrypt.genSalt(10);
@@ -99,7 +113,13 @@ exports.updateUser = async(req, res) => {
         }
 
         await user.save();
-        res.json({ _id: user._id, name: user.name, email: user.email, role: user.role });
+        res.json({
+            _id: user._id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+            programs: user.programs
+        });
     } catch (err) {
         console.error(err.message);
         res.status(500).send('Server error');

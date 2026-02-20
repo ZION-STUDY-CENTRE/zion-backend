@@ -12,7 +12,7 @@ const { parser } = require('../config/cloudinary');
 
 // Get all files for a program
 // Only show files for programs the student is enrolled in
-router.get('/program/:programId', authMiddleware, async (req, res) => {
+router.get('/program/:programId', authMiddleware, async(req, res) => {
     try {
         let programMatch = { program: req.params.programId };
         if (req.user.role === 'student') {
