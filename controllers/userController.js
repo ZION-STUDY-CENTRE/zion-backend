@@ -159,7 +159,7 @@ exports.changeOwnPassword = async(req, res) => {
 // @route   PUT /api/users/:id/reactivate
 // @access  Private (Admin)
 exports.reactivateUser = async(req, res) => {
-    const { durationMonths } = req.body;
+    const { durationMonths, programs } = req.body;
     try {
         let user = await User.findById(req.params.id);
 
@@ -167,8 +167,25 @@ exports.reactivateUser = async(req, res) => {
             return res.status(404).json({ msg: 'User not found' });
         }
 
-        user.enrollmentDate = Date.now(); // Reset enrollment to Now
-        user.programDuration = durationMonths || 3; // Set new duration
+        // If multi-programs provided, update each program's enrollmentDate and duration
+        if (Array.isArray(programs) && programs.length > 0) {
+            user.programs = programs.map(p => ({
+                program: p.program,
+                duration: p.duration || durationMonths || 3,
+                enrollmentDate: Date.now()
+            }));
+        } else if (user.programs && user.programs.length > 0) {
+            // If no new programs provided, just update enrollmentDate/duration for all existing
+            user.programs = user.programs.map(p => ({
+                ...p.toObject(),
+                duration: durationMonths || p.duration || 3,
+                enrollmentDate: Date.now()
+            }));
+        } else {
+            // Legacy: single program fields
+            user.enrollmentDate = Date.now();
+            user.programDuration = durationMonths || 3;
+        }
         user.isActive = true; // Ensure account is active
 
         await user.save();

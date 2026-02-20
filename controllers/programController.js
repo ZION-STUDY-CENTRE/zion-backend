@@ -225,17 +225,36 @@ exports.deleteProgram = async (req, res) => {
 // @access  Private (Student only)
 exports.getStudentProgram = async (req, res) => {
     try {
-        const User = require('../models/User'); 
-        const user = await User.findById(req.user.id);
-        
-        if (!user || !user.program) {
-            return res.status(404).json({ msg: 'Not enrolled in any program' });
-        }
+      const User = require('../models/User');
+      const user = await User.findById(req.user.id).populate('programs.program');
 
-        const program = await Program.findById(user.program).populate('instructors', 'name email');
-        res.json(program);
+      if (!user) {
+        return res.status(404).json({ msg: 'User not found' });
+      }
+
+      // Multi-program support
+      if (user.programs && user.programs.length > 0) {
+        // Populate instructors for each program
+        const programs = await Promise.all(user.programs.map(async (entry) => {
+          const prog = await Program.findById(entry.program._id || entry.program).populate('instructors', 'name email');
+          return {
+            program: prog,
+            enrollmentDate: entry.enrollmentDate,
+            duration: entry.duration
+          };
+        }));
+        return res.json(programs);
+      }
+
+      // Legacy: single program field
+      if (user.program) {
+        const prog = await Program.findById(user.program).populate('instructors', 'name email');
+        return res.json({ program: prog, enrollmentDate: user.enrollmentDate, duration: user.programDuration });
+      }
+
+      return res.status(404).json({ msg: 'Not enrolled in any program' });
     } catch (err) {
-        console.error(err.message);
-        res.status(500).send('Server error');
+      console.error(err.message);
+      res.status(500).send('Server error');
     }
 };
