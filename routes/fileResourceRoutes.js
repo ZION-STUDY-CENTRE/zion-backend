@@ -12,23 +12,30 @@ const { parser } = require('../config/cloudinary');
 
 // Get all files for a program
 // Only show files for programs the student is enrolled in
-let programMatch = { program: req.params.programId };
-if (req.user.role === 'student') {
-    programMatch = {
-        $or: [
-            { program: req.params.programId },
-            { 'programs.program': req.params.programId }
-        ]
-    };
-}
-const files = await FileResource.find({
-    ...programMatch,
-    $or: [
-        { visibility: 'public' },
-        { visibility: 'private', uploadedBy: req.user.id },
-        { visibility: 'specific-students', accessibleTo: req.user.id }
-    ]
-})
+router.get('/program/:programId', authMiddleware, async (req, res) => {
+    try {
+        let programMatch = { program: req.params.programId };
+        if (req.user.role === 'student') {
+            programMatch = {
+                $or: [
+                    { program: req.params.programId },
+                    { 'programs.program': req.params.programId }
+                ]
+            };
+        }
+        const files = await FileResource.find({
+            ...programMatch,
+            $or: [
+                { visibility: 'public' },
+                { visibility: 'private', uploadedBy: req.user.id },
+                { visibility: 'specific-students', accessibleTo: req.user.id }
+            ]
+        });
+        res.json(files);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
 
 // Get single file resource
 router.get('/:id', authMiddleware, async(req, res) => {
