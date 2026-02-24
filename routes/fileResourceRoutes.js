@@ -192,17 +192,41 @@ router.put('/:id', authMiddleware, async(req, res) => {
     }
 });
 
-// Record download
-router.post('/:id/download', authMiddleware, async(req, res) => {
+// Download file with correct filename and extension
+const axios = require('axios');
+router.get('/:id/download', authMiddleware, async (req, res) => {
     try {
         const file = await FileResource.findByIdAndUpdate(
             req.params.id, { $inc: { downloadCount: 1 } }, { new: true }
         );
-        res.json(file);
+        if (!file) return res.status(404).json({ message: 'File not found' });
+
+        // Fetch file from Cloudinary and pipe to response
+        const fileUrl = file.fileUrl;
+        const fileName = file.title ? `${file.title}${fileNameHasExtension(file.fileName) ? getExtension(file.fileName) : ''}` : file.fileName;
+        res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+        res.setHeader('Content-Type', file.fileType || 'application/octet-stream');
+
+        // Stream file from Cloudinary to client
+        const response = await axios({
+            url: fileUrl,
+            method: 'GET',
+            responseType: 'stream',
+        });
+        response.data.pipe(res);
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
 });
+
+// Helper to check if filename has extension
+function fileNameHasExtension(name) {
+    return /\.[^/.]+$/.test(name);
+}
+function getExtension(name) {
+    const match = name.match(/(\.[^/.]+)$/);
+    return match ? match[1] : '';
+}
 
 // Delete file resource (owner or admin can delete)
 router.delete('/:id', authMiddleware, async(req, res) => {
