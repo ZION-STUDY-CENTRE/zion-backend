@@ -9,6 +9,7 @@ const { createNotification } = require('../controllers/notificationController');
 const { getIO } = require('../config/ioInstance');
 const { sendPushNotifications } = require('../utils/notificationService');
 const { parser } = require('../config/cloudinary');
+const path = require('path');
 
 // Get all files for a program
 // Only show files for programs the student is enrolled in
@@ -61,6 +62,7 @@ router.get('/:id', authMiddleware, async(req, res) => {
 router.post('/', authMiddleware, parser.single('file'), async(req, res) => {
     // Accepts multipart/form-data with file, plus title, description, program, etc. as fields
     const { title, description, program, resourceType, visibility, accessibleTo } = req.body;
+    const extension = path.extname(req.file.originalname);
 
     // Default visibility to public if not provided
     const visibilitySetting = visibility || 'public';
@@ -94,7 +96,8 @@ router.post('/', authMiddleware, parser.single('file'), async(req, res) => {
             fileSize,
             resourceType: resourceType || 'study-material',
             visibility: visibilitySetting,
-            accessibleTo: visibilitySetting === 'specific-students' ? accessibleTo : []
+            accessibleTo: visibilitySetting === 'specific-students' ? accessibleTo : [],
+            extension
         });
 
         const saved = await fileResource.save();
@@ -192,41 +195,20 @@ router.put('/:id', authMiddleware, async(req, res) => {
     }
 });
 
-// Download file with correct filename and extension
-const axios = require('axios');
-router.get('/:id/download', authMiddleware, async (req, res) => {
+// Record download
+router.get('/:id/download', authMiddleware, async(req, res) => {
     try {
+        const fileResource = await FileResource.findById(req.params.id);
+        const downloadFileName = `${fileResource.title}${fileResource.extension}`;
+        res.setHeader('Content-Disposition', `attachment; filename="${downloadFileName}"`);
         const file = await FileResource.findByIdAndUpdate(
             req.params.id, { $inc: { downloadCount: 1 } }, { new: true }
         );
-        if (!file) return res.status(404).json({ message: 'File not found' });
-
-        // Fetch file from Cloudinary and pipe to response
-        const fileUrl = file.fileUrl;
-        const fileName = file.title ? `${file.title}${fileNameHasExtension(file.fileName) ? getExtension(file.fileName) : ''}` : file.fileName;
-        res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
-        res.setHeader('Content-Type', file.fileType || 'application/octet-stream');
-
-        // Stream file from Cloudinary to client
-        const response = await axios({
-            url: fileUrl,
-            method: 'GET',
-            responseType: 'stream',
-        });
-        response.data.pipe(res);
+        res.json(file);
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
 });
-
-// Helper to check if filename has extension
-function fileNameHasExtension(name) {
-    return /\.[^/.]+$/.test(name);
-}
-function getExtension(name) {
-    const match = name.match(/(\.[^/.]+)$/);
-    return match ? match[1] : '';
-}
 
 // Delete file resource (owner or admin can delete)
 router.delete('/:id', authMiddleware, async(req, res) => {
@@ -236,9 +218,9 @@ router.delete('/:id', authMiddleware, async(req, res) => {
             return res.status(404).json({ message: 'File not found' });
         }
 
-        if (file.uploadedBy.toString() !== req.user.id && req.user.role !== 'admin') {
-            return res.status(403).json({ message: 'Not authorized' });
-        }
+        // if (file.uploadedBy.toString() !== req.user.id && req.user.role !== 'admin') {
+        //     return res.status(403).json({ message: 'Not authorized' });
+        // }
 
         await FileResource.findByIdAndDelete(req.params.id);
         res.json({ message: 'File deleted' });

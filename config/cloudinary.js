@@ -9,28 +9,18 @@ cloudinary.config({
     api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
-const path = require('path');
 const storage = new CloudinaryStorage({
     cloudinary: cloudinary,
-    params: async (req, file) => {
+    params: async(req, file) => {
         // Dynamic folder based on query parameter 'category'
+        // E.g., /api/upload?category=blog -> folder: zion_blog
         const category = req.query.category || 'general';
         // Detect file type by mimetype
         const imageMimes = ['image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp', 'image/bmp', 'image/svg+xml'];
         const isImage = imageMimes.includes(file.mimetype);
-        // Always preserve original filename for non-images
-        let public_id;
-        if (!isImage) {
-            // Remove extension from originalname for public_id, then add extension back
-            const ext = path.extname(file.originalname);
-            const base = path.basename(file.originalname, ext);
-            public_id = `zion_${category}/${base}${ext}`;
-        }
         return {
             folder: `zion_${category}`,
             resource_type: isImage ? 'image' : 'raw',
-            public_id: !isImage ? public_id : undefined,
-            // For images, let Cloudinary handle naming
         };
     },
 });
