@@ -199,12 +199,24 @@ router.put('/:id', authMiddleware, async(req, res) => {
 router.get('/:id/download', authMiddleware, async(req, res) => {
     try {
         const fileResource = await FileResource.findById(req.params.id);
+        if (!fileResource) {
+            return res.status(404).json({ message: 'File not found' });
+        }
         const downloadFileName = `${fileResource.title}${fileResource.extension}`;
+        const fileUrl = fileResource.fileUrl;
+
+        // Use axios to stream the file
+        const axios = require('axios');
+        const response = await axios({
+            url: fileUrl,
+            method: 'GET',
+            responseType: 'stream'
+        });
+
         res.setHeader('Content-Disposition', `attachment; filename="${downloadFileName}"`);
-        const file = await FileResource.findByIdAndUpdate(
-            req.params.id, { $inc: { downloadCount: 1 } }, { new: true }
-        );
-        res.json(file);
+        res.setHeader('Content-Type', fileResource.fileType);
+
+        response.data.pipe(res);
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
