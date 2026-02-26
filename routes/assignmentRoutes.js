@@ -1,3 +1,6 @@
+// Download assignment attachment by assignmentId and attachment index
+const axios = require('axios');
+const path = require('path');
 const express = require('express');
 const router = express.Router();
 const Assignment = require('../models/Assignment');
@@ -7,6 +10,38 @@ const roleMiddleware = require('../middleware/roleMiddleware');
 const { createNotification } = require('../controllers/notificationController');
 const { getIO } = require('../config/ioInstance');
 const { sendPushNotifications } = require('../utils/notificationService');
+
+
+
+router.get('/:assignmentId/attachments/:index/download', authMiddleware, async(req, res) => {
+    try {
+        const { assignmentId, index } = req.params;
+        const assignment = await Assignment.findById(assignmentId);
+        if (!assignment) {
+            return res.status(404).json({ message: 'Assignment not found' });
+        }
+        const idx = parseInt(index, 10);
+        if (!assignment.attachments || !assignment.attachments[idx]) {
+            return res.status(404).json({ message: 'Attachment not found' });
+        }
+        const att = assignment.attachments[idx];
+        const fileUrl = att.fileUrl;
+        const fileName = att.fileName || `attachment_${index}`;
+        const extension = att.extension || path.extname(fileName) || '';
+        const downloadFileName = `${assignment.title || 'assignment'}_${fileName}`;
+        // Stream from Cloudinary
+        const response = await axios({
+            url: fileUrl,
+            method: 'GET',
+            responseType: 'stream'
+        });
+        res.setHeader('Content-Disposition', `attachment; filename="${downloadFileName}"`);
+        res.setHeader('Content-Type', response.headers['content-type'] || 'application/octet-stream');
+        response.data.pipe(res);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
 
 // Get all assignments for a program
 router.get('/program/:programId', authMiddleware, async(req, res) => {
@@ -52,6 +87,17 @@ router.post('/', authMiddleware, roleMiddleware('instructor', 'admin'), async(re
         // Get the full user object to access name
         const instructor = await User.findById(req.user.id);
 
+        // Attachments: add extension if not present
+        let processedAttachments = [];
+        if (attachments && Array.isArray(attachments)) {
+            processedAttachments = attachments.map(att => {
+                if (att.fileName && !att.extension) {
+                    const ext = att.fileName.lastIndexOf('.') !== -1 ? att.fileName.substring(att.fileName.lastIndexOf('.')) : '';
+                    return {...att, extension: ext };
+                }
+                return att;
+            });
+        }
         const assignment = new Assignment({
             title,
             description,
@@ -59,7 +105,7 @@ router.post('/', authMiddleware, roleMiddleware('instructor', 'admin'), async(re
             createdBy: req.user.id,
             dueDate: new Date(dueDate),
             scheduledDate: new Date(scheduledDate) || new Date(),
-            attachments: attachments || [],
+            attachments: processedAttachments,
             status: 'published'
         });
 
