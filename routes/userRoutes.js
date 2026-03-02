@@ -46,6 +46,21 @@ router.put('/:id/reactivate', [authMiddleware, roleMiddleware('admin')],
     userController.reactivateUser
 );
 
+// Pause user (Admin only)
+router.put('/:id/pause', [authMiddleware, roleMiddleware('admin')],
+    userController.pauseUser
+);
+
+// Unpause user (Admin only)
+router.put('/:id/unpause', [authMiddleware, roleMiddleware('admin')],
+    userController.unpauseUser
+);
+
+// Deactivate user (Admin only)
+router.put('/:id/deactivate', [authMiddleware, roleMiddleware('admin')],
+    userController.deactivateUser
+);
+
 // Delete user (Admin only)
 router.delete('/:id', [authMiddleware, roleMiddleware('admin')],
     userController.deleteUser

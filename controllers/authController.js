@@ -218,29 +218,54 @@ exports.login = async(req, res) => {
             });
         }
 
-        // Check Automation Logic: Student Expiration
+        // Check Automation Logic: Student Expiration & Paused/Deactivated Status
         if (user.role === 'student') {
             const currentDate = new Date();
-            const enrollment = new Date(user.enrollmentDate);
-            const duration = user.programDuration || 3;
+            let hasActiveProgram = false;
 
-            let expirationDate = new Date(enrollment);
+            // Handle multi-program students
+            if (user.programs && user.programs.length > 0) {
+                user.programs.forEach(p => {
+                    const enrollment = new Date(p.enrollmentDate);
+                    const duration = p.duration || 0; // 0 duration means deactivated
 
-            // Support fractional months
-            const wholeMonths = Math.floor(duration);
-            expirationDate.setMonth(expirationDate.getMonth() + wholeMonths);
+                    // Skip if deactivated or paused
+                    if (duration <= 0 || p.isPaused) return;
 
-            const fractionalMonths = duration - wholeMonths;
-            if (fractionalMonths > 0) {
-                // 1 Month = 30 * 24 * 60 * 60 * 1000 = 2,592,000,000 ms
-                expirationDate = new Date(expirationDate.getTime() + (fractionalMonths * 2592000000));
+                    let expirationDate = new Date(enrollment);
+                    const wholeMonths = Math.floor(duration);
+                    expirationDate.setMonth(expirationDate.getMonth() + wholeMonths);
+                    const fractionalMonths = duration - wholeMonths;
+                    if (fractionalMonths > 0) {
+                        expirationDate = new Date(expirationDate.getTime() + (fractionalMonths * 2592000000));
+                    }
+
+                    if (currentDate <= expirationDate) {
+                        hasActiveProgram = true;
+                    }
+                });
+            } else {
+                // Fallback for legacy single-program
+                const enrollment = new Date(user.enrollmentDate);
+                const duration = user.programDuration || 3;
+                let expirationDate = new Date(enrollment);
+                const wholeMonths = Math.floor(duration);
+                expirationDate.setMonth(expirationDate.getMonth() + wholeMonths);
+                const fractionalMonths = duration - wholeMonths;
+                if (fractionalMonths > 0) {
+                    expirationDate = new Date(expirationDate.getTime() + (fractionalMonths * 2592000000));
+                }
+
+                if (currentDate <= expirationDate) {
+                    hasActiveProgram = true;
+                }
             }
 
-            if (currentDate > expirationDate) {
-                user.isActive = false;
-                await user.save();
+            if (!hasActiveProgram) {
+                // We don't set user.isActive = false here permanently because they might be just paused
+                // But we deny login
                 return res.status(403).json({
-                    msg: 'Your access has expired. Please register again to continue accessing the portal.'
+                    msg: 'Access denied. Your programs are either expired, paused, or deactivated.'
                 });
             }
         }

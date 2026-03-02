@@ -38,6 +38,14 @@ const UserSchema = new mongoose.Schema({
         enrollmentDate: {
             type: Date,
             default: Date.now
+        },
+        isPaused: {
+            type: Boolean,
+            default: false
+        },
+        pausedDaysLeft: {
+            type: Number,
+            default: null
         }
     }],
     // Student Specific Fields

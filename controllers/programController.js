@@ -245,14 +245,21 @@ exports.getStudentProgram = async(req, res) => {
         if (user.programs && user.programs.length > 0) {
             // Populate instructors for each program
             const programs = await Promise.all(user.programs.map(async(entry) => {
+                // Filter out paused or deactivated (duration <= 0) programs from the dashboard
+                if ((entry.duration || 0) <= 0 || entry.isPaused) return null;
+
                 const prog = await Program.findById(entry.program._id || entry.program).populate('instructors', 'name email');
                 return {
                     program: prog,
                     enrollmentDate: entry.enrollmentDate,
-                    duration: entry.duration
+                    duration: entry.duration,
+                    isPaused: entry.isPaused,
+                    pausedDaysLeft: entry.pausedDaysLeft
                 };
             }));
-            return res.json(programs);
+
+            // Return only active programs
+            return res.json(programs.filter(p => p !== null));
         }
 
         // Legacy: single program field

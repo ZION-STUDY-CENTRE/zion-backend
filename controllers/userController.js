@@ -1,3 +1,123 @@
+// @desc    Pause a student
+// @route   PUT /api/users/:id/pause
+// @access  Private (Admin)
+exports.pauseUser = async(req, res) => {
+    try {
+        let user = await User.findById(req.params.id);
+        const { programId } = req.body;
+        if (!user) {
+            return res.status(404).json({ msg: 'User not found' });
+        }
+        if (user.role !== 'student') {
+            return res.status(400).json({ msg: 'Only students can be paused' });
+        }
+        let updated = false;
+        user.programs = user.programs.map(p => {
+            if (String(p.program) === String(programId)) {
+                const enrollment = new Date(p.enrollmentDate);
+                const now = new Date();
+                const msPerDay = 1000 * 60 * 60 * 24;
+                const daysPassed = Math.floor((now - enrollment) / msPerDay);
+                const daysLeft = Math.max((p.duration * 30) - daysPassed, 0);
+                updated = true;
+                return {
+                    ...p.toObject(),
+                    pausedDaysLeft: daysLeft,
+                    isPaused: true
+                };
+            }
+            return p;
+        });
+        if (!updated) {
+            return res.status(400).json({ msg: 'Program not found for student' });
+        }
+        await user.save();
+        res.json(user);
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send('Server error');
+    }
+};
+// @desc    Unpause a student
+// @route   PUT /api/users/:id/unpause
+// @access  Private (Admin)
+exports.unpauseUser = async(req, res) => {
+    try {
+        let user = await User.findById(req.params.id);
+        const { programId } = req.body;
+        if (!user) {
+            return res.status(404).json({ msg: 'User not found' });
+        }
+        if (user.role !== 'student') {
+            return res.status(400).json({ msg: 'Only students can be unpaused' });
+        }
+        let updated = false;
+        user.programs = user.programs.map(p => {
+            if (String(p.program) === String(programId) && p.isPaused && p.pausedDaysLeft != null) {
+                updated = true;
+
+                // Logic to resume without resetting duration
+                // We shift the enrollmentDate forward so that the remaining time equals what was left
+                // New Enrollment Date = Now - (Total Duration - Time Left)
+
+                const msPerDay = 1000 * 60 * 60 * 24;
+                const totalDurationDays = p.duration * 30; // 30 days per month approximation
+                const daysUsed = Math.max(totalDurationDays - p.pausedDaysLeft, 0);
+                const newEnrollmentDate = new Date(Date.now() - (daysUsed * msPerDay));
+
+                return {
+                    ...p.toObject(),
+                    enrollmentDate: newEnrollmentDate,
+                    isPaused: false,
+                    pausedDaysLeft: null
+                };
+            }
+            return p;
+        });
+        if (!updated) {
+            return res.status(400).json({ msg: 'Program not found or not paused for student' });
+        }
+        await user.save();
+        res.json(user);
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send('Server error');
+    }
+};
+// @desc    Deactivate a student
+// @route   PUT /api/users/:id/deactivate
+// @access  Private (Admin)
+exports.deactivateUser = async(req, res) => {
+    try {
+        let user = await User.findById(req.params.id);
+        const { programId } = req.body;
+        if (!user) {
+            return res.status(404).json({ msg: 'User not found' });
+        }
+        if (user.role !== 'student') {
+            return res.status(400).json({ msg: 'Only students can be deactivated' });
+        }
+        let updated = false;
+        user.programs = user.programs.map(p => {
+            if (String(p.program) === String(programId)) {
+                updated = true;
+                return {
+                    ...p.toObject(),
+                    duration: 0
+                };
+            }
+            return p;
+        });
+        if (!updated) {
+            return res.status(400).json({ msg: 'Program not found for student' });
+        }
+        await user.save();
+        res.json(user);
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send('Server error');
+    }
+};
 const User = require('../models/User');
 const bcrypt = require('bcryptjs');
 
@@ -98,13 +218,19 @@ exports.updateUser = async(req, res) => {
         user.name = name || user.name;
         user.email = email || user.email;
 
-        // If programs array is provided, update it
+        // If programs array is provided, update only the affected programs, preserve others
         if (Array.isArray(programs)) {
-            user.programs = programs.map(p => ({
-                program: p.program,
-                duration: p.duration || 3,
-                enrollmentDate: p.enrollmentDate || Date.now()
-            }));
+            // Build a map of existing programs for quick lookup
+            const existingPrograms = new Map((user.programs || []).map(p => [String(p.program), p]));
+            user.programs = programs.map(p => {
+                const existing = existingPrograms.get(String(p.program));
+                return {
+                    program: p.program,
+                    duration: p.duration || (existing ? existing.duration : 3),
+                    // Only update enrollmentDate if explicitly provided, else preserve existing
+                    enrollmentDate: p.enrollmentDate || (existing ? existing.enrollmentDate : Date.now())
+                };
+            });
         }
 
         if (password) {
@@ -167,20 +293,24 @@ exports.reactivateUser = async(req, res) => {
             return res.status(404).json({ msg: 'User not found' });
         }
 
-        // If multi-programs provided, update each program's enrollmentDate and duration
+        // If multi-programs provided, update only the affected programs, preserve others
         if (Array.isArray(programs) && programs.length > 0) {
-            user.programs = programs.map(p => ({
-                program: p.program,
-                duration: p.duration || durationMonths || 3,
-                enrollmentDate: Date.now()
-            }));
+            const existingPrograms = new Map((user.programs || []).map(p => [String(p.program), p]));
+            user.programs = programs.map(p => {
+                const existing = existingPrograms.get(String(p.program));
+                return {
+                    program: p.program,
+                    duration: p.duration || durationMonths || (existing ? existing.duration : 3),
+                    // Reactivation: always reset enrollmentDate for affected programs
+                    enrollmentDate: Date.now()
+                };
+            }).concat(
+                // Preserve any programs not included in the reactivation payload
+                (user.programs || []).filter(p => !programs.some(np => String(np.program) === String(p.program)))
+            );
         } else if (user.programs && user.programs.length > 0) {
-            // If no new programs provided, just update enrollmentDate/duration for all existing
-            user.programs = user.programs.map(p => ({
-                ...p.toObject(),
-                duration: durationMonths || p.duration || 3,
-                enrollmentDate: Date.now()
-            }));
+            // If no new programs provided, do NOT reset all programs; instead, do nothing or optionally allow admin to specify which to reactivate
+            // For backward compatibility, you may want to skip this block or log a warning
         } else {
             // Legacy: single program fields
             user.enrollmentDate = Date.now();
