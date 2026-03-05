@@ -20,10 +20,10 @@ exports.getConversations = async(req, res) => {
             .sort({ lastMessageAt: -1 })
             .lean();
 
-        // Trim participant names to remove extra whitespace
+        // Trim participant names to remove extra whitespace and handle missing users
         const cleanedConversations = conversations.map(conv => ({
             ...conv,
-            participants: conv.participants.map(p => ({
+            participants: conv.participants.filter(p => p).map(p => ({
                 ...p,
                 name: p.name ? p.name.trim() : p.name
             }))
@@ -236,11 +236,60 @@ exports.getOrCreateConversation = async(req, res) => {
             return res.status(404).json({ error: 'User not found' });
         }
 
-        // If current user is instructor, verify they can only chat with students in their program
+        // If current user is instructor, verify permissions
         const currentUser = await User.findById(currentUserId);
         if (`${currentUser?.role}` === 'instructor') {
-            if (otherUser.role !== 'student' || `${otherUser.program?.toString()}` !== `${currentUser.program?.toString()}`) {
-                return res.status(403).json({ error: 'You can only chat with students in your program' });
+            // Logic: Instructors can chat with:
+            // 1. Students enrolled in ANY of their programs
+            // 2. Admins (always allowed)
+            // 3. Media Managers
+            // 4. Other Instructors in the same program
+
+            const isStudent = otherUser.role === 'student';
+            const isInstructor = otherUser.role === 'instructor';
+            const isAdmin = otherUser.role === 'admin' || otherUser.role === 'superadmin';
+            const isMediaManager = otherUser.role === 'media-manager';
+
+            if (isAdmin || isMediaManager) {
+                // Allowed to chat with staff (Admin/Media Manager)
+                console.log(`[Chat Permission] Instructor ${currentUserId} allowed to chat with Staff ${userId} (${otherUser.role})`);
+            } else {
+                // Check if student/instructor is in any program the instructor teaches
+                const Program = require('../models/Program');
+                
+                // Get programs where current user is an instructor
+                const instructorPrograms = await Program.find({ instructors: currentUserId }).select('_id');
+                const instructorProgramIds = instructorPrograms.map(p => p._id.toString());
+
+                let otherUserProgramIds = [];
+                
+                if (isStudent) {
+                    if (otherUser.programs && otherUser.programs.length > 0) {
+                        otherUserProgramIds = otherUser.programs.map(p => (p.program?._id || p.program).toString());
+                    } else if (otherUser.program) {
+                        otherUserProgramIds = [(otherUser.program?._id || otherUser.program).toString()];
+                    }
+                } else if (isInstructor) {
+                    // For other instructors, check if they teach any of the same programs
+                    const otherInstructorPrograms = await Program.find({ instructors: userId }).select('_id');
+                    otherUserProgramIds = otherInstructorPrograms.map(p => p._id.toString());
+                }
+
+                // Check intersection
+                const hasCommonProgram = instructorProgramIds.some(id => otherUserProgramIds.includes(id));
+
+                console.log(`[Chat Permission] Instructor Programs: ${instructorProgramIds}`);
+                console.log(`[Chat Permission] Target User Programs: ${otherUserProgramIds}`);
+                console.log(`[Chat Permission] Common Program: ${hasCommonProgram}`);
+
+                if (!hasCommonProgram) {
+                    if (isInstructor) {
+                        return res.status(403).json({ error: 'You can only chat with instructors in your programs' });
+                    } else {
+                        // Default error for students or others
+                        return res.status(403).json({ error: 'You can only chat with students in your programs' });
+                    }
+                }
             }
         }
 
@@ -260,15 +309,15 @@ exports.getOrCreateConversation = async(req, res) => {
             await conversation.populate('participants', '_id name email role');
         }
 
-        // Trim participant names and ensure _id is included
+        // Trim participant names and ensure _id is included, handling potential null participants
         const conversationObj = conversation.toObject ? conversation.toObject() : conversation;
         const cleanedConversation = {
             ...conversationObj,
-            participants: conversation.participants.map(p => {
+            participants: conversation.participants.filter(p => p).map(p => {
                 const participant = p.toObject ? p.toObject() : p;
                 return {
                     _id: participant._id,
-                    name: p.name ? p.name.trim() : p.name,
+                    name: participant.name ? participant.name.trim() : participant.name,
                     email: participant.email,
                     role: participant.role
                 };
@@ -293,11 +342,17 @@ exports.createGroupConversation = async(req, res) => {
             return res.status(400).json({ error: 'User not authenticated properly' });
         }
 
-        if (!name || !participantIds || participantIds.length < 2) {
-            return res.status(400).json({ error: 'Invalid group data' });
+        if (!name || !participantIds || participantIds.length === 0) {
+            return res.status(400).json({ error: 'At least one participant is required for a group' });
         }
 
-        const allParticipants = [...new Set([userId.toString(), ...participantIds])];
+        // AUTO-ADD SUPER ADMINS: Find all admins and ensure they are in the participants list
+        const admins = await User.find({ role: 'admin' }).select('_id');
+        const adminIds = admins.map(a => a._id.toString());
+
+        console.log(`[Chat Group] Auto-adding admins:`, adminIds);
+
+        const allParticipants = [...new Set([userId.toString(), ...participantIds, ...adminIds])];
 
         const conversation = await Conversation.create({
             name,
@@ -343,19 +398,14 @@ exports.getAllUsers = async(req, res) => {
                 console.log(`[Chat Users] Instructor ${userId} is in programs:`, programIds, programs.map(p => p.title));
 
                 if (!programIds.length) {
-                    // Instructor has no program assigned: only show admins
+                    // Instructor has no program assigned: only show admins and media managers
                     query = {
                         _id: { $ne: userId },
-                        role: 'admin'
+                        role: { $in: ['admin', 'media-manager'] }
                     };
-                    console.log(`[Chat Users] Instructor has no program. Only showing admins.`);
+                    console.log(`[Chat Users] Instructor has no program. Only showing admins and media managers.`);
                 } else {
-                    // Instructor has one or more programs: show students in those programs, instructors in those programs, and all admins
-                    // 1. Find all students in those programs (User.program in programIds, role: student)
-                    // 2. Find all instructors whose _id is in the instructors array of those programs (excluding self)
-                    // 3. Find all admins
-
-                    // Find all instructor IDs in these programs (excluding self)
+                    // ... (rest of instructor logic)
                     const allPrograms = await Program.find({ _id: { $in: programIds } }).select('instructors title');
                     const instructorIds = Array.from(new Set(allPrograms.flatMap(p => p.instructors.map(id => id.toString())).filter(id => id !== userId)));
 
@@ -363,22 +413,15 @@ exports.getAllUsers = async(req, res) => {
                         _id: { $ne: userId },
                         $or: [
                             { program: { $in: programIds }, role: 'student' },
+                            { "programs.program": { $in: programIds }, role: 'student' },
                             { _id: { $in: instructorIds }, role: 'instructor' },
-                            { role: 'admin' }
+                            { role: { $in: ['admin', 'media-manager'] } }
                         ]
                     };
-
-                    // Debug: Log all users in these roles
-                    const studentsInProgram = await User.find({ program: { $in: programIds }, role: 'student' }).select('_id name email role program').lean();
-                    const instructorsInProgram = await User.find({ _id: { $in: instructorIds }, role: 'instructor' }).select('_id name email role program').lean();
-                    const admins = await User.find({ role: 'admin' }).select('_id name email role program').lean();
-
-                    console.log(`[Chat Users][DEBUG] Students in programs ${programIds}:`, studentsInProgram);
-                    console.log(`[Chat Users][DEBUG] Instructors in programs ${programIds}:`, instructorsInProgram);
-                    console.log(`[Chat Users][DEBUG] Admins:`, admins);
-                    console.log(`[Chat Users] Query for instructor: programs=${programIds}, students in program, instructors in instructors array, OR admin`);
+                    // ...
                 }
             } else if (userRole === 'student') {
+                // ... (student logic remains same, can chat with admins)
                 console.log('[Chat Users][DEBUG] Student branch entered.');
                 // If neither, log the role for debugging
                 if (userRole !== 'instructor' && userRole !== 'student') {
@@ -402,15 +445,7 @@ exports.getAllUsers = async(req, res) => {
                             { role: 'admin' }
                         ]
                     };
-                    // Debug: Log all users in these roles
-                    const instructorsInProgram = await User.find({ _id: { $in: instructorIds }, role: 'instructor' }).select('_id name email role program').lean();
-                    const studentsInProgram = await User.find({ program: student.program, role: 'student' }).select('_id name email role program').lean();
-                    const admins = await User.find({ role: 'admin' }).select('_id name email role program').lean();
-
-                    console.log(`[Chat Users][DEBUG] Instructors in program ${student.program}:`, instructorsInProgram);
-                    console.log(`[Chat Users][DEBUG] Students in program ${student.program}:`, studentsInProgram);
-                    console.log(`[Chat Users][DEBUG] Admins:`, admins);
-                    console.log(`[Chat Users] Query for student: program=${student.program}, instructors from program.instructors, students in program, OR admin`);
+                    // ...
                 } else {
                     // If student has no program, restrict to just admins
                     query = {
@@ -419,8 +454,16 @@ exports.getAllUsers = async(req, res) => {
                     };
                     console.log(`[Chat Users] Student has no program. Only showing admins.`);
                 }
+            } else if (userRole === 'media-manager') {
+                // RESTRICT MEDIA MANAGER: Only Admin and Instructors
+                query = {
+                    _id: { $ne: userId },
+                    role: { $in: ['admin', 'instructor'] }
+                };
             }
-            // Admin and media-manager can see everyone
+            // Admin can see everyone (default behavior if no if/else matches or if I add explicit admin block)
+
+            // ...
 
             const users = await User.find(query)
                 .select('_id name email role program')
