@@ -1,64 +1,64 @@
-const crypto = require('crypto');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
-const User = require('../models/User');
-const RefreshToken = require('../models/RefreshToken');
-const axios = require('axios');
+const crypto = require("crypto");
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+const User = require("../models/User");
+const RefreshToken = require("../models/RefreshToken");
+const axios = require("axios");
 
 // Helper to generate Access Token (JWT)
 const generateAccessToken = (user) => {
-    const payload = {
-        user: {
-            _id: user._id,
-            id: user.id,
-            role: user.role
-        }
-    };
-    return jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1d' }); // 1 day
+  const payload = {
+    user: {
+      _id: user._id,
+      id: user.id,
+      role: user.role,
+    },
+  };
+  return jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: "1d" }); // 1 day
 };
 
 // Helper to generate Refresh Token (Opaque + DB)
-const generateRefreshToken = async(user, ipAddress) => {
-    const token = crypto.randomBytes(40).toString('hex');
-    const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 Days
+const generateRefreshToken = async (user, ipAddress) => {
+  const token = crypto.randomBytes(40).toString("hex");
+  const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 Days
 
-    const refreshToken = new RefreshToken({
-        user: user.id,
-        token,
-        expires,
-        createdByIp: ipAddress
-    });
-    await refreshToken.save();
-    return token;
+  const refreshToken = new RefreshToken({
+    user: user.id,
+    token,
+    expires,
+    createdByIp: ipAddress,
+  });
+  await refreshToken.save();
+  return token;
 };
 
 // Helper to set cookies
 const setTokenCookies = (res, accessToken, refreshToken) => {
-    // Access Token Cookie (Short lived)
-    res.cookie('accessToken', accessToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', // Lax is better for staying logged in during navigation, but None required for cross-site
-        maxAge: 30 * 60 * 1000 // 30 minutes
-    });
+  // Access Token Cookie (Short lived)
+  res.cookie("accessToken", accessToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: process.env.NODE_ENV === "production" ? "none" : "lax", // Lax is better for staying logged in during navigation, but None required for cross-site
+    maxAge: 30 * 60 * 1000, // 30 minutes
+  });
 
-    // Refresh Token Cookie (Long lived)
-    res.cookie('refreshToken', refreshToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-        path: '/api/auth/refresh', // Restricted path
-        maxAge: 24 * 60 * 60 * 1000 // 1 day
-    });
+  // Refresh Token Cookie (Long lived)
+  res.cookie("refreshToken", refreshToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+    path: "/api/auth/refresh", // Restricted path
+    maxAge: 24 * 60 * 60 * 1000, // 1 day
+  });
 };
 
 // Helper: Send Verification Email with Student Login Instructions
-const sendVerificationEmail = async(user, token) => {
-    const verificationUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/verify-email?token=${token}`;
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+const sendVerificationEmail = async (user, token) => {
+  const verificationUrl = `${process.env.FRONTEND_URL || "http://localhost:5173"}/verify-email?token=${token}`;
+  const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
 
-    // Custom HTML template with student login instructions
-    const emailContent = `
+  // Custom HTML template with student login instructions
+  const emailContent = `
         <!DOCTYPE html>
         <html>
         <head>
@@ -168,357 +168,449 @@ const sendVerificationEmail = async(user, token) => {
         </html>
     `;
 
-    // Use the same structure as your emailController
-    const payload = {
-        service_id: process.env.EMAILJS_SERVICE_ID,
-        template_id: process.env.EMAILJS_TEMPLATE_ID, // Use your Zion Master Template
-        user_id: process.env.EMAILJS_PUBLIC_KEY,
-        accessToken: process.env.EMAILJS_PRIVATE_KEY,
-        template_params: {
-            to_email: user.email,
-            from_name: 'ZION STUDY CENTRE',
-            subject: "Welcome to Zion Study Centre - Verify Your Email & Login Instructions",
-            content: emailContent,
-            reply_to: 'admin@zionstudycentre.com'
-        }
-    };
+  // Use the same structure as your emailController
+  const payload = {
+    service_id: process.env.EMAILJS_SERVICE_ID,
+    template_id: process.env.EMAILJS_TEMPLATE_ID, // Use your Zion Master Template
+    user_id: process.env.EMAILJS_PUBLIC_KEY,
+    accessToken: process.env.EMAILJS_PRIVATE_KEY,
+    template_params: {
+      to_email: user.email,
+      from_name: "ZION STUDY CENTRE",
+      subject:
+        "Welcome to Zion Study Centre - Verify Your Email & Login Instructions",
+      content: emailContent,
+      reply_to: "admin@zionstudycentre.com",
+    },
+  };
 
-    try {
-        await axios.post('https://api.emailjs.com/api/v1.0/email/send', payload);
-    } catch (err) {
-        console.error("Failed to send verification email:", err.message);
-    }
+  try {
+    await axios.post("https://api.emailjs.com/api/v1.0/email/send", payload);
+  } catch (err) {
+    console.error("Failed to send verification email:", err.message);
+  }
 };
 
 // @desc    Authenticate user & get token
 // @route   POST /api/auth/login
 // @access  Public
-exports.login = async(req, res) => {
-    const { email, password } = req.body;
-    console.log("LOCAL BACKEND LOGIN HIT", { email });
+exports.login = async (req, res) => {
+  const { email, password } = req.body;
+  console.log("LOCAL BACKEND LOGIN HIT", { email });
 
-    try {
-        let user = await User.findOne({ email });
-        if (!user) {
-            return res.status(400).json({ msg: 'Invalid Credentials' });
-        }
-
-        // Check password
-        const isMatch = await bcrypt.compare(password, user.password);
-        if (!isMatch) {
-            return res.status(400).json({ msg: 'Invalid Credentials' });
-        }
-
-        // Check Email Verification for Students
-        if (user.role === 'student' && !user.isEmailVerified) {
-            return res.status(403).json({
-                msg: 'Email not verified',
-                code: 'EMAIL_NOT_VERIFIED',
-                email: user.email
-            });
-        }
-
-        // Check Automation Logic: Student Expiration & Paused/Deactivated Status
-        if (user.role === 'student') {
-            const currentDate = new Date();
-            let hasActiveProgram = false;
-
-            // Handle multi-program students
-            if (user.programs && user.programs.length > 0) {
-                user.programs.forEach(p => {
-                    const enrollment = new Date(p.enrollmentDate);
-                    const duration = p.duration || 0; // 0 duration means deactivated
-
-                    // Skip if deactivated or paused
-                    if (duration <= 0 || p.isPaused) return;
-
-                    let expirationDate = new Date(enrollment);
-                    const wholeMonths = Math.floor(duration);
-                    expirationDate.setMonth(expirationDate.getMonth() + wholeMonths);
-                    const fractionalMonths = duration - wholeMonths;
-                    if (fractionalMonths > 0) {
-                        expirationDate = new Date(expirationDate.getTime() + (fractionalMonths * 2592000000));
-                    }
-
-                    if (currentDate <= expirationDate) {
-                        hasActiveProgram = true;
-                    }
-                });
-            } else {
-                // Fallback for legacy single-program
-                const enrollment = new Date(user.enrollmentDate);
-                const duration = user.programDuration || 3;
-                let expirationDate = new Date(enrollment);
-                const wholeMonths = Math.floor(duration);
-                expirationDate.setMonth(expirationDate.getMonth() + wholeMonths);
-                const fractionalMonths = duration - wholeMonths;
-                if (fractionalMonths > 0) {
-                    expirationDate = new Date(expirationDate.getTime() + (fractionalMonths * 2592000000));
-                }
-
-                if (currentDate <= expirationDate) {
-                    hasActiveProgram = true;
-                }
-            }
-
-            if (!hasActiveProgram) {
-                // We don't set user.isActive = false here permanently because they might be just paused
-                // But we deny login
-                return res.status(403).json({
-                    msg: 'Access denied. Your programs are either expired, paused, or deactivated.'
-                });
-            }
-        }
-
-        if (!user.isActive) {
-            return res.status(403).json({ msg: 'Account is deactivated. Contact admin.' });
-        }
-
-        const accessToken = generateAccessToken(user);
-        const refreshToken = await generateRefreshToken(user, req.ip);
-
-        setTokenCookies(res, accessToken, refreshToken);
-
-        console.log("LOGIN RESPONSE SENT FROM LOCAL BACKEND", { token: typeof accessToken, user: user.email });
-        res.json({
-            msg: 'Login successful',
-            token: accessToken,
-            user: {
-                id: user.id,
-                name: user.name,
-                email: user.email,
-                role: user.role,
-                isFirstLogin: user.isFirstLogin,
-                program: user.program
-            }
-        });
-    } catch (err) {
-        console.error(err.message);
-        res.status(500).send('Server error');
+  try {
+    let user = await User.findOne({ email });
+    if (!user) {
+      return res.status(400).json({ msg: "Invalid Credentials" });
     }
+
+    // Check password
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(400).json({ msg: "Invalid Credentials" });
+    }
+
+    // Check Email Verification for Students
+    if (user.role === "student" && !user.isEmailVerified) {
+      return res.status(403).json({
+        msg: "Email not verified",
+        code: "EMAIL_NOT_VERIFIED",
+        email: user.email,
+      });
+    }
+
+    // Check Automation Logic: Student Expiration & Paused/Deactivated Status
+    if (user.role === "student") {
+      const currentDate = new Date();
+      let hasActiveProgram = false;
+
+      // Handle multi-program students
+      if (user.programs && user.programs.length > 0) {
+        user.programs.forEach((p) => {
+          const enrollment = new Date(p.enrollmentDate);
+          const duration = p.duration || 0; // 0 duration means deactivated
+
+          // Skip if deactivated or paused
+          if (duration <= 0 || p.isPaused) return;
+
+          let expirationDate = new Date(enrollment);
+          const wholeMonths = Math.floor(duration);
+          expirationDate.setMonth(expirationDate.getMonth() + wholeMonths);
+          const fractionalMonths = duration - wholeMonths;
+          if (fractionalMonths > 0) {
+            expirationDate = new Date(
+              expirationDate.getTime() + fractionalMonths * 2592000000,
+            );
+          }
+
+          if (currentDate <= expirationDate) {
+            hasActiveProgram = true;
+          }
+        });
+      } else {
+        // Fallback for legacy single-program
+        const enrollment = new Date(user.enrollmentDate);
+        const duration = user.programDuration || 3;
+        let expirationDate = new Date(enrollment);
+        const wholeMonths = Math.floor(duration);
+        expirationDate.setMonth(expirationDate.getMonth() + wholeMonths);
+        const fractionalMonths = duration - wholeMonths;
+        if (fractionalMonths > 0) {
+          expirationDate = new Date(
+            expirationDate.getTime() + fractionalMonths * 2592000000,
+          );
+        }
+
+        if (currentDate <= expirationDate) {
+          hasActiveProgram = true;
+        }
+      }
+
+      if (!hasActiveProgram) {
+        // We don't set user.isActive = false here permanently because they might be just paused
+        // But we deny login
+        return res.status(403).json({
+          msg: "Access denied. Your programs are either expired, paused, or deactivated.",
+        });
+      }
+    }
+
+    if (!user.isActive) {
+      return res
+        .status(403)
+        .json({ msg: "Account is deactivated. Contact admin." });
+    }
+
+    const accessToken = generateAccessToken(user);
+    const refreshToken = await generateRefreshToken(user, req.ip);
+
+    setTokenCookies(res, accessToken, refreshToken);
+
+    console.log("LOGIN RESPONSE SENT FROM LOCAL BACKEND", {
+      token: typeof accessToken,
+      user: user.email,
+    });
+    res.json({
+      msg: "Login successful",
+      token: accessToken,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        isFirstLogin: user.isFirstLogin,
+        program: user.program,
+      },
+    });
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send("Server error");
+  }
 };
 
 // @desc    Log out user / Clear cookie
 // @route   POST /api/auth/logout
 // @access  Public
-exports.logout = async(req, res) => {
-    try {
-        const refreshToken = req.cookies.refreshToken;
+exports.logout = async (req, res) => {
+  try {
+    const refreshToken = req.cookies.refreshToken;
 
-        // Delete refresh token from database
-        if (refreshToken) {
-            await RefreshToken.findOneAndDelete({ token: refreshToken });
-        }
-
-        // Clear all auth cookies with proper options
-        const cookieOptions = {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-        };
-
-        res.clearCookie('accessToken', cookieOptions);
-        res.clearCookie('refreshToken', {...cookieOptions, path: '/api/auth/refresh' });
-        res.clearCookie('token', cookieOptions); // Legacy token cookie
-
-        res.status(200).json({ msg: 'Logged out successfully' });
-    } catch (err) {
-        console.error("Logout error:", err);
-        res.status(500).json({ msg: 'Logout failed' });
+    // Delete refresh token from database
+    if (refreshToken) {
+      await RefreshToken.findOneAndDelete({ token: refreshToken });
     }
-};
 
+    // Clear all auth cookies with proper options
+    const cookieOptions = {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+    };
+
+    res.clearCookie("accessToken", cookieOptions);
+    res.clearCookie("refreshToken", {
+      ...cookieOptions,
+      path: "/api/auth/refresh",
+    });
+    res.clearCookie("token", cookieOptions); // Legacy token cookie
+
+    res.status(200).json({ msg: "Logged out successfully" });
+  } catch (err) {
+    console.error("Logout error:", err);
+    res.status(500).json({ msg: "Logout failed" });
+  }
+};
 
 // @desc    Refresh Access Token
 // @route   POST /api/auth/refresh
 // @access  Public (Cookie based)
-exports.refreshToken = async(req, res) => {
-    const token = req.cookies.refreshToken;
+exports.refreshToken = async (req, res) => {
+  const token = req.cookies.refreshToken;
 
-    if (!token) {
-        return res.status(401).json({ msg: 'Token required' });
+  if (!token) {
+    return res.status(401).json({ msg: "Token required" });
+  }
+
+  try {
+    const rToken = await RefreshToken.findOne({ token }).populate("user");
+
+    if (!rToken || !rToken.isActive) {
+      // If token found but revoked -> Security Alert (Reuse Attempt)
+      if (rToken && rToken.revoked) {
+        console.warn(
+          `[Security] Revoked refresh token reuse attempt for user ${rToken.user?._id || "unknown"}`,
+        );
+        // Optional: Revoke all tokens for this user
+      }
+      res.clearCookie("accessToken");
+      res.clearCookie("refreshToken", { path: "/api/auth/refresh" });
+      return res.status(401).json({ msg: "Invalid token" });
     }
 
-    try {
-        const rToken = await RefreshToken.findOne({ token }).populate('user');
-
-        if (!rToken || !rToken.isActive) {
-            // If token found but revoked -> Security Alert (Reuse Attempt)
-            if (rToken && rToken.revoked) {
-                console.warn(`[Security] Revoked refresh token reuse attempt for user ${rToken.user?._id || 'unknown'}`);
-                // Optional: Revoke all tokens for this user
-            }
-            res.clearCookie('accessToken');
-            res.clearCookie('refreshToken', { path: '/api/auth/refresh' });
-            return res.status(401).json({ msg: 'Invalid token' });
-        }
-
-        const { user } = rToken;
-        if (!user) {
-            return res.status(401).json({ msg: 'User not found' });
-        }
-
-        // Rotation Logic
-        // 1. Revoke current refresh token
-        rToken.revoked = Date.now();
-        const newRefreshTokenString = crypto.randomBytes(40).toString('hex');
-        rToken.replacedByToken = newRefreshTokenString;
-        await rToken.save();
-
-        // 2. Generate new tokens
-        const newAccessToken = generateAccessToken(user);
-
-        // 3. Save new Refresh Token
-        const newRTokenDoc = new RefreshToken({
-            user: user._id,
-            token: newRefreshTokenString,
-            expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 Days
-        });
-        await newRTokenDoc.save();
-
-        // 4. Send cookies
-        setTokenCookies(res, newAccessToken, newRefreshTokenString);
-
-        res.json({ msg: 'Refreshed' });
-
-    } catch (err) {
-        console.error("Refresh Logic Error:", err);
-        res.status(500).send('Server Error');
+    const { user } = rToken;
+    if (!user) {
+      return res.status(401).json({ msg: "User not found" });
     }
+
+    // Rotation Logic
+    // 1. Revoke current refresh token
+    rToken.revoked = Date.now();
+    const newRefreshTokenString = crypto.randomBytes(40).toString("hex");
+    rToken.replacedByToken = newRefreshTokenString;
+    await rToken.save();
+
+    // 2. Generate new tokens
+    const newAccessToken = generateAccessToken(user);
+
+    // 3. Save new Refresh Token
+    const newRTokenDoc = new RefreshToken({
+      user: user._id,
+      token: newRefreshTokenString,
+      expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 Days
+    });
+    await newRTokenDoc.save();
+
+    // 4. Send cookies
+    setTokenCookies(res, newAccessToken, newRefreshTokenString);
+
+    res.json({ msg: "Refreshed" });
+  } catch (err) {
+    console.error("Refresh Logic Error:", err);
+    res.status(500).send("Server Error");
+  }
 };
 
 // @desc    Get current logged in user
 // @route   GET /api/auth/me
 // @access  Private
-exports.getMe = async(req, res) => {
-    try {
-        const user = await User.findById(req.user.id).select('-password');
-        res.json(user);
-    } catch (err) {
-        console.error(err.message);
-        res.status(500).send('Server error');
-    }
+exports.getMe = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).select("-password");
+    res.json(user);
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send("Server error");
+  }
 };
 
 // @desc    Register a new user (Admin only)
 // @route   POST /api/auth/register
 // @access  Private (Admin only)
-exports.registerUser = async(req, res) => {
-    // mapped 'enrolledProgram' to 'program' mostly for consistency with frontend
-    const { name, email, role, enrolledProgram, durationMonths } = req.body;
+exports.registerUser = async (req, res) => {
+  const {
+    name,
+    email,
+    role,
+    enrolledProgram,
+    durationMonths,
+    programs,
+    program,
+    programDuration,
+    password,
+  } = req.body;
 
-    try {
-        let user = await User.findOne({ email });
-        if (user) {
-            return res.status(400).json({ msg: 'User already exists' });
-        }
-
-        // Default password as per requirement
-        const passwordToSave = 'zion123';
-        const salt = await bcrypt.genSalt(10);
-        const hashedPassword = await bcrypt.hash(passwordToSave, salt);
-
-        // Generate Verification Token
-        const verificationToken = crypto.randomBytes(20).toString('hex');
-        const verificationTokenExpire = Date.now() + 24 * 60 * 60 * 1000; // 24 hours
-
-        user = new User({
-            name,
-            email,
-            password: hashedPassword,
-            role,
-            program: enrolledProgram || undefined, // Map enrolledProgram to program
-            programDuration: durationMonths || 3, // Set student specific duration
-            isFirstLogin: true,
-            // Admins are auto-verified, Students need verification
-            isEmailVerified: role === 'student' ? false : true,
-            verificationToken: role === 'student' ? verificationToken : undefined,
-            verificationTokenExpire: role === 'student' ? verificationTokenExpire : undefined
-        });
-
-        await user.save();
-
-        // Send the email immediately for students
-        if (role === 'student') {
-            await sendVerificationEmail(user, verificationToken);
-        }
-
-        res.json({ msg: 'User registered. Verification email sent (if student).', user: { id: user.id, name: user.name, role: user.role } });
-    } catch (err) {
-        console.error(err.message);
-        res.status(500).send('Server error');
+  try {
+    if (!name || !email || !role) {
+      return res.status(400).json({
+        msg: "Name, email, and role are required",
+        message: "Name, email, and role are required",
+      });
     }
+
+    const normalizedEmail = String(email).trim().toLowerCase();
+    let user = await User.findOne({ email: normalizedEmail });
+    if (user) {
+      return res
+        .status(400)
+        .json({ msg: "User already exists", message: "User already exists" });
+    }
+
+    const passwordToSave = password || "zion123";
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(passwordToSave, salt);
+
+    const verificationToken = crypto.randomBytes(20).toString("hex");
+    const verificationTokenExpire = Date.now() + 24 * 60 * 60 * 1000; // 24 hours
+
+    // Normalize programs array from admin registration
+    const selectedPrograms = Array.isArray(programs)
+      ? programs
+          .map((item) => {
+            if (!item) return null;
+            if (typeof item === "string" && item.trim() !== "") {
+              return { program: item.trim(), duration: 3 };
+            }
+            if (typeof item === "object") {
+              return {
+                program:
+                  item.program ||
+                  item._id ||
+                  item.id ||
+                  item.program?._id ||
+                  null,
+                duration: item.duration || 3,
+                enrollmentDate: item.enrollmentDate,
+                isPaused: item.isPaused,
+                pausedDaysLeft: item.pausedDaysLeft,
+              };
+            }
+            return null;
+          })
+          .filter((item) => item && item.program)
+      : [];
+
+    const firstProgramId =
+      selectedPrograms[0]?.program || enrolledProgram || program;
+    const firstProgramDuration =
+      selectedPrograms[0]?.duration || durationMonths || programDuration || 3;
+
+    const userPayload = {
+      name,
+      email: normalizedEmail,
+      password: hashedPassword,
+      role,
+      program: firstProgramId || undefined,
+      programDuration: firstProgramDuration,
+      isActive: true,
+      isFirstLogin: true,
+      isEmailVerified: role === "student" ? false : true,
+      verificationToken: role === "student" ? verificationToken : undefined,
+      verificationTokenExpire:
+        role === "student" ? verificationTokenExpire : undefined,
+    };
+
+    if (selectedPrograms.length > 0) {
+      userPayload.programs = selectedPrograms.map((item) => ({
+        program: item.program,
+        duration: item.duration || 3,
+        enrollmentDate: item.enrollmentDate || Date.now(),
+        isPaused: Boolean(item.isPaused),
+        pausedDaysLeft: item.pausedDaysLeft ?? null,
+      }));
+    }
+
+    console.log("Registering user payload:", userPayload);
+
+    user = new User(userPayload);
+    await user.save();
+
+    if (role === "student") {
+      await sendVerificationEmail(user, verificationToken);
+    }
+
+    res.status(201).json({
+      msg: "User registered. Verification email sent (if student).",
+      message: "User registered. Verification email sent (if student).",
+      user: { id: user.id, name: user.name, role: user.role },
+    });
+  } catch (err) {
+    if (err.code === 11000) {
+      return res
+        .status(400)
+        .json({ msg: "User already exists", message: "User already exists" });
+    }
+
+    if (err.name === "ValidationError" || err.name === "CastError") {
+      return res.status(400).json({ msg: err.message, message: err.message });
+    }
+
+    console.error(err.message);
+    res.status(500).json({ msg: "Server error", message: "Server error" });
+  }
 };
 
 // @desc    Change Password (For first time login or manual change)
 // @route   POST /api/auth/change-password
 // @access  Private
-exports.changePassword = async(req, res) => {
-    const { newPassword } = req.body;
+exports.changePassword = async (req, res) => {
+  const { newPassword } = req.body;
 
-    try {
-        const user = await User.findById(req.user.id);
+  try {
+    const user = await User.findById(req.user.id);
 
-        const salt = await bcrypt.genSalt(10);
-        user.password = await bcrypt.hash(newPassword, salt);
-        user.isFirstLogin = false;
+    const salt = await bcrypt.genSalt(10);
+    user.password = await bcrypt.hash(newPassword, salt);
+    user.isFirstLogin = false;
 
-        await user.save();
-        res.json({ msg: 'Password updated successfully' });
-    } catch (err) {
-        console.error(err.message);
-        res.status(500).send('Server error');
-    }
+    await user.save();
+    res.json({ msg: "Password updated successfully" });
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send("Server error");
+  }
 };
 
 // --- NEW: Verify Email Endpoint ---
 // @route   POST /api/auth/verify-email
-exports.verifyEmail = async(req, res) => {
-    const { token } = req.body;
+exports.verifyEmail = async (req, res) => {
+  const { token } = req.body;
 
-    try {
-        const user = await User.findOne({
-            verificationToken: token,
-            verificationTokenExpire: { $gt: Date.now() } // Ensure not expired
-        });
+  try {
+    const user = await User.findOne({
+      verificationToken: token,
+      verificationTokenExpire: { $gt: Date.now() }, // Ensure not expired
+    });
 
-        if (!user) {
-            return res.status(400).json({ msg: 'Invalid or expired verification token' });
-        }
-
-        user.isEmailVerified = true;
-        user.verificationToken = undefined;
-        user.verificationTokenExpire = undefined;
-        await user.save();
-
-        res.json({ msg: 'Email verified successfully. You can now login.' });
-    } catch (err) {
-        console.error(err.message);
-        res.status(500).send('Server error');
+    if (!user) {
+      return res
+        .status(400)
+        .json({ msg: "Invalid or expired verification token" });
     }
+
+    user.isEmailVerified = true;
+    user.verificationToken = undefined;
+    user.verificationTokenExpire = undefined;
+    await user.save();
+
+    res.json({ msg: "Email verified successfully. You can now login." });
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send("Server error");
+  }
 };
 
 // --- NEW: Resend Verification Email ---
 // @route   POST /api/auth/resend-verification
-exports.resendVerification = async(req, res) => {
-    const { email } = req.body;
-    try {
-        const user = await User.findOne({ email });
+exports.resendVerification = async (req, res) => {
+  const { email } = req.body;
+  try {
+    const user = await User.findOne({ email });
 
-        if (!user) return res.status(404).json({ msg: 'User not found' });
-        if (user.isEmailVerified) return res.status(400).json({ msg: 'Email already verified' });
+    if (!user) return res.status(404).json({ msg: "User not found" });
+    if (user.isEmailVerified)
+      return res.status(400).json({ msg: "Email already verified" });
 
-        // Generate new token
-        const verificationToken = crypto.randomBytes(20).toString('hex');
-        user.verificationToken = verificationToken;
-        user.verificationTokenExpire = Date.now() + 24 * 60 * 60 * 1000;
-        await user.save();
+    // Generate new token
+    const verificationToken = crypto.randomBytes(20).toString("hex");
+    user.verificationToken = verificationToken;
+    user.verificationTokenExpire = Date.now() + 24 * 60 * 60 * 1000;
+    await user.save();
 
-        await sendVerificationEmail(user, verificationToken);
+    await sendVerificationEmail(user, verificationToken);
 
-        res.json({ msg: 'Verification email resent' });
-    } catch (err) {
-        console.error(err.message);
-        res.status(500).send('Server error');
-    }
+    res.json({ msg: "Verification email resent" });
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send("Server error");
+  }
 };
