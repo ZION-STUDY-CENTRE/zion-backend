@@ -20,7 +20,7 @@ const BlogPostSchema = new mongoose.Schema({
     },
     platform: {
         type: String,
-        enum: ['facebook', 'instagram', 'youtube', 'tiktok'],
+        enum: ['facebook', 'instagram', 'linkedin', 'youtube', 'tiktok'],
         required: function() { return this.type === 'social-media-post'; }
     },
     description: {
